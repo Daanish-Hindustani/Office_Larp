@@ -31,11 +31,12 @@ const obstacles = [
 ];
 export const distance = (a, b) => Math.hypot((a.x - b.x) * 1.5, a.y - b.y);
 export const theaterDoor = { x: 50, y: 95 };
+export const leetcodeDoor = { x: 66, y: 95 };
 export const canWalk = (x, y, ignoreChairId = null) =>
   x > 7 &&
   x < 94 &&
   y > 24 &&
-  (y < 93 || (x > 44 && x < 56 && y < 102)) &&
+  (y < 93 || (((x > 44 && x < 56) || (x > 62 && x < 70)) && y < 102)) &&
   !obstacles.some(
     (o) =>
       o.chairId !== ignoreChairId &&

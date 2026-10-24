@@ -21,6 +21,7 @@ import {
   beginChairPull,
   updateChairAction,
   theaterDoor,
+  leetcodeDoor,
 } from "./world";
 
 export function Avatar({ sprite = 0, className = "" }) {
@@ -35,7 +36,7 @@ export function Avatar({ sprite = 0, className = "" }) {
   );
 }
 const Office = forwardRef(function Office(
-  { onVisit, onChat, onEnterTheater, paused, onNearby, emote },
+  { onVisit, onChat, onEnterTheater, onEnterLeetCode, paused, onNearby, emote },
   ref,
 ) {
   const playerElement = useRef(null),
@@ -63,7 +64,14 @@ const Office = forwardRef(function Office(
     selected = useRef(null),
     resumeWalk = useRef(null),
     callbacks = useRef({});
-  callbacks.current = { onVisit, onChat, onEnterTheater, paused, onNearby };
+  callbacks.current = {
+    onVisit,
+    onChat,
+    onEnterTheater,
+    onEnterLeetCode,
+    paused,
+    onNearby,
+  };
   const [nearby, setNearby] = useState(null),
     [target, setTarget] = useState(null),
     [message, setMessage] = useState(null),
@@ -111,8 +119,9 @@ const Office = forwardRef(function Office(
     if (!choice || callbacks.current.paused) return;
     const a = actor.current;
     if (choice.kind === "door") {
-      if (distance(a, theaterDoor) > 12) return;
-      enterTheater();
+      const door = choice.id === "leetcode" ? leetcodeDoor : theaterDoor;
+      if (distance(a, door) > 12) return;
+      enterRoom(choice.id);
       return;
     }
     if (choice.kind === "stand") {
@@ -166,19 +175,32 @@ const Office = forwardRef(function Office(
       callbacks.current.onVisit(choice.desk);
     }
   }
-  function enterTheater() {
+  function enterRoom(room) {
     stop();
-    actor.current.x = 50;
+    actor.current.x = room === "leetcode" ? leetcodeDoor.x : theaterDoor.x;
     actor.current.y = 90;
     actor.current.direction = "up";
     selected.current = null;
-    callbacks.current.onEnterTheater?.();
+    if (room === "leetcode") callbacks.current.onEnterLeetCode?.();
+    else callbacks.current.onEnterTheater?.();
   }
   useImperativeHandle(ref, () => ({
     interact: () => interact(),
     returnFromTheater: () => {
       stop();
       actor.current.x = 50;
+      actor.current.y = 90;
+      actor.current.direction = "up";
+      selected.current = null;
+      requestAnimationFrame(() =>
+        playerElement.current
+          ?.closest(".office-map")
+          ?.focus({ preventScroll: true }),
+      );
+    },
+    returnFromLeetCode: () => {
+      stop();
+      actor.current.x = 66;
       actor.current.y = 90;
       actor.current.direction = "up";
       selected.current = null;
@@ -373,7 +395,9 @@ const Office = forwardRef(function Office(
           }
         }
         if (a.state === "standing" && a.x > 44 && a.x < 56 && a.y > 97)
-          enterTheater();
+          enterRoom("theater");
+        else if (a.state === "standing" && a.x > 62 && a.x < 70 && a.y > 97)
+          enterRoom("leetcode");
         for (const npc of npcs.current) updateNpc(npc, dt, a, npcs.current);
       }
       for (const chair of chairs) {
@@ -396,6 +420,14 @@ const Office = forwardRef(function Office(
         };
       else if (a.state === "standing") {
         const candidates = [
+          {
+            ...leetcodeDoor,
+            kind: "door",
+            id: "leetcode",
+            name: "the algorithm room",
+            label: "Enter algorithm room",
+            radius: 10,
+          },
           {
             ...theaterDoor,
             kind: "door",
@@ -502,7 +534,7 @@ const Office = forwardRef(function Office(
     >
       <img
         className="room-art"
-        src="/assets/office-floor.png"
+        src="/assets/office-floor-lab.png"
         alt="Cozy pixel office with computers, chairs, plants and a sofa lounge"
         draggable="false"
       />
@@ -524,6 +556,17 @@ const Office = forwardRef(function Office(
         }}
       >
         <span>THEATER</span>
+        <span aria-hidden="true">↓</span>
+      </button>
+      <button
+        className="theater-door leetcode-door"
+        aria-label="Walk to the algorithm room to the right of the theater"
+        onClick={(event) => {
+          event.stopPropagation();
+          walkTo({ x: 66, y: 100 });
+        }}
+      >
+        <span>CODE CLUB</span>
         <span aria-hidden="true">↓</span>
       </button>
       {desks.map((d) => (
