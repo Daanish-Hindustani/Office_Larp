@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import Office from "./Office";
 import ProjectWindow from "./ProjectWindow";
+import PairLobby from "./PairLobby";
 import { people } from "./data";
 import "@fontsource/press-start-2p";
 import "@fontsource/dm-sans/400.css";
@@ -96,11 +97,18 @@ function Help({ onClose }) {
 export default function App() {
   const [active, setActive] = useState(null),
     [help, setHelp] = useState(false),
+    [pairLobby, setPairLobby] = useState(false),
+    [pairOnOpen, setPairOnOpen] = useState(false),
     [nearby, setNearby] = useState(null);
   const office = useRef(null);
   const closeProject = useCallback(() => {
     setActive(null);
   }, []);
+  const closePairLobby = useCallback(() => setPairLobby(false), []);
+  function openWorkspace(person) {
+    setPairOnOpen(false);
+    setActive(person);
+  }
   useEffect(() => {
     const key = (e) => {
       if (e.key === "Escape") setHelp(false);
@@ -126,6 +134,14 @@ export default function App() {
           <span className="online">
             <i />5 online
           </span>
+          <button
+            className="chrome-button pair-launch"
+            aria-label="Pair up"
+            onClick={() => setPairLobby(true)}
+          >
+            <span aria-hidden="true">↔</span>{" "}
+            <span className="pair-launch-label">Pair up</span>
+          </button>
           <SoundButton />
           <button className="chrome-button" onClick={() => setHelp(true)}>
             <span>▤</span> How to play
@@ -148,9 +164,9 @@ export default function App() {
           <div className="map-frame">
             <Office
               ref={office}
-              paused={Boolean(active || help)}
-              onVisit={setActive}
-              onChat={setActive}
+              paused={Boolean(active || help || pairLobby)}
+              onVisit={openWorkspace}
+              onChat={openWorkspace}
               onNearby={setNearby}
             />
           </div>
@@ -239,10 +255,21 @@ export default function App() {
           key={active.id}
           person={active}
           showChat={people.some((person) => person.id === active.id)}
+          initialPairing={pairOnOpen}
           onClose={closeProject}
         />
       )}
       {help && <Help onClose={() => setHelp(false)} />}
+      {pairLobby && (
+        <PairLobby
+          onClose={closePairLobby}
+          onChoose={(person) => {
+            setPairLobby(false);
+            setPairOnOpen(true);
+            setActive(person);
+          }}
+        />
+      )}
     </div>
   );
 }
