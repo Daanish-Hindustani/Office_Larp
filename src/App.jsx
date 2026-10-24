@@ -4,6 +4,7 @@ import ProjectWindow from "./ProjectWindow";
 import PairLobby from "./PairLobby";
 import TheaterRoom from "./TheaterRoom";
 import MovementControls from "./MovementControls";
+import LeetCodeRoom from "./LeetCodeRoom";
 import { people } from "./data";
 import "@fontsource/press-start-2p";
 import "@fontsource/dm-sans/400.css";
@@ -101,11 +102,10 @@ export default function App() {
     [help, setHelp] = useState(false),
     [pairLobby, setPairLobby] = useState(false),
     [pairOnOpen, setPairOnOpen] = useState(false),
-    [room, setRoom] = useState(() =>
-      new URLSearchParams(window.location.search).get("room") === "theater"
-        ? "theater"
-        : "studio",
-    ),
+    [room, setRoom] = useState(() => {
+      const requested = new URLSearchParams(window.location.search).get("room");
+      return ["theater", "leetcode"].includes(requested) ? requested : "studio";
+    }),
     [nearby, setNearby] = useState(null);
   const office = useRef(null);
   function enterTheater() {
@@ -116,11 +116,19 @@ export default function App() {
     window.history.replaceState(null, "", url);
   }
   function returnToStudio() {
-    office.current?.returnFromTheater();
+    if (room === "leetcode") office.current?.returnFromLeetCode();
+    else office.current?.returnFromTheater();
     setRoom("studio");
     setNearby(null);
     const url = new URL(window.location.href);
     url.searchParams.delete("room");
+    window.history.replaceState(null, "", url);
+  }
+  function enterLeetCode() {
+    setRoom("leetcode");
+    setNearby(null);
+    const url = new URL(window.location.href);
+    url.searchParams.set("room", "leetcode");
     window.history.replaceState(null, "", url);
   }
   const closeProject = useCallback(() => {
@@ -170,21 +178,31 @@ export default function App() {
           </button>
         </div>
       </header>
-      <main className={`main-layout${room === "theater" ? " in-theater" : ""}`}>
+      <main
+        className={`main-layout${room === "theater" ? " in-theater" : room === "leetcode" ? " in-leetcode" : ""}`}
+      >
         <section className="world-section">
           <div className="world-heading">
             <div>
               <span className="room-title">
-                {room === "theater" ? "The screening room" : "The studio"}
+                {room === "theater"
+                  ? "The screening room"
+                  : room === "leetcode"
+                    ? "The algorithm room"
+                    : "The studio"}
               </span>
               <span className="room-description">
                 {room === "theater"
                   ? "A shared screen. A softer pace."
-                  : "Good company. Great little projects."}
+                  : room === "leetcode"
+                    ? "Good company. One little problem."
+                    : "Good company. Great little projects."}
               </span>
             </div>
             <span className="room-number">
-              ROOM {room === "theater" ? "002" : "001"} <i />
+              ROOM{" "}
+              {room === "theater" ? "002" : room === "leetcode" ? "003" : "001"}{" "}
+              <i />
             </span>
           </div>
           <div className="studio-view" hidden={room !== "studio"}>
@@ -195,6 +213,7 @@ export default function App() {
                   active || help || pairLobby || room !== "studio",
                 )}
                 onEnterTheater={enterTheater}
+                onEnterLeetCode={enterLeetCode}
                 onVisit={openWorkspace}
                 onChat={openWorkspace}
                 onNearby={setNearby}
@@ -229,6 +248,11 @@ export default function App() {
           </div>
           <TheaterRoom
             visible={room === "theater"}
+            paused={Boolean(active || help || pairLobby)}
+            onExit={returnToStudio}
+          />
+          <LeetCodeRoom
+            visible={room === "leetcode"}
             paused={Boolean(active || help || pairLobby)}
             onExit={returnToStudio}
           />

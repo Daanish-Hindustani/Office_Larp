@@ -1,6 +1,6 @@
 # Office Hours
 
-A playable, UI-first hackathon prototype of a pixel coworking office. Built with React + Vite; all people and projects are local mocks.
+A playable, UI-first pixel coworking office, with local mock coworkers, a communal theater, and a real LeetCode practice room. Built with React + Vite and a small read-only Node adapter for LeetCode data.
 
 ## Run
 
@@ -10,6 +10,8 @@ npm run dev
 ```
 
 Open http://localhost:5173. `npm run build` creates the static build in `dist/`.
+
+The development and preview servers include the LeetCode adapter. To serve the built app with the same API, run `npm run build` followed by `npm start` and open http://127.0.0.1:4173. `PORT` and `HOST` can override that address. A static-file-only host cannot serve the LeetCode API; use the included Node server or route `/api/leetcode/` to it. Tested with Node 22.
 
 ## Explore
 
@@ -24,6 +26,7 @@ Open http://localhost:5173. `npm run build` creates the static build in `dist/`.
 - Touch: tap the floor or use the movement buttons below the office.
 - Sound: toggle a quiet synthesized ambient chord.
 - Theater: walk down the bottom-center hallway (or click its THEATER sign) to enter the screening room. Walk through the upper-right doorway there to return to the studio.
+- Algorithm room: enter the CODE CLUB doorway immediately to the right of the theater doorway in the original studio. Approach a computer, press E to sit, then press E or Open computer to start a real problem. Movement or Stand up leaves the chair.
 
 Each computer opens an IDE on the left and an interactive demo on the right. The editor contains **starter HTML**, not the React source of the initial mock demo. Run renders that HTML in a sandbox; Reset returns to the demo. HTML drafts are kept per project in `sessionStorage`, including when you close and reopen a computer or reload the tab. If browser storage is unavailable, editing still works for the current workspace. Demo state and chat reset when the workspace closes. Nothing is shared with other browsers.
 
@@ -50,9 +53,23 @@ Playback, queue changes, presence, chat, and reactions sync between tabs in the 
 
 Leaving the room pauses your local video. It pauses the shared screening when you are the last guest; otherwise the remaining guests keep watching. The studio remains mounted, preserving the office simulation while you visit. Room queues and messages stay in memory for the current app instance and are not saved to an account.
 
+## The algorithm room
+
+The third room has four playable computer desks, a leaderboard chalkboard, and a practice shelf of eight free LeetCode problems. The doorway is to the right of the theater in the studio; `?room=leetcode` also opens the room directly. Keyboard, click-to-approach, and touch controls work in the room. Phone users can switch directly between Room & problems and Leaderboard.
+
+Statements, difficulty, topics, JavaScript starter code, and profile statistics are fetched from LeetCode’s website GraphQL endpoint through the same-origin, read-only adapter. There are no seeded leaderboard entries or offline replacement statements. Loading failures show Retry and an original-source link. Upstream access and schema can change, so this adapter is a best-effort integration rather than an official LeetCode API partnership.
+
+At a computer, choose a problem, edit JavaScript, and run five room-authored practice cases. The runner executes in a worker inside an opaque-origin sandbox with network access blocked by CSP and a two-second timeout. User code never runs on the Node server. Drafts are saved per problem in browser local storage, with an in-memory fallback. Reset has an undo action, and results are marked stale when the draft changes. Ctrl/Cmd+Enter runs the practice cases; Tab still moves keyboard focus normally.
+
+**Copy & submit on LeetCode** copies the draft and opens the official problem page. Select JavaScript, paste, and submit on LeetCode using your own browser login. The app does not collect passwords, cookies, or session tokens and does not submit solutions on your behalf. Local practice cases are not LeetCode’s hidden tests and never award leaderboard points.
+
+Track up to eight public LeetCode usernames to build a browser-local studio leaderboard. Scores use unique all-time solved counts: **Easy × 1 + Medium × 3 + Hard × 5**. Equal scores and solve totals share a rank. Refresh pulls public stats; failed refreshes retain a clearly marked last snapshot. Tracking a username does not authenticate ownership of that account. Saved standings are shared across tabs through browser storage, not through a hosted multi-user leaderboard.
+
+After an official submission, **Check Accepted** refreshes the selected profile and looks for this problem in its latest 20 public Accepted submissions since the problem was opened at the desk. Older submissions do not verify the current session. Private or unavailable activity cannot confirm it; public solve counts can still refresh. The read-only adapter caches catalog metadata for an hour, statements for a day, and profile data for a minute. Manual refresh can fetch new profile data after a five-second cooldown.
+
 ### Verify
 
-`npm test` starts temporary Vite servers on ports 5174 (pairing) and 5175 (theater) and runs Playwright checks with installed Chrome. Set `PLAYWRIGHT_CHANNEL` to another installed Chromium channel if needed. Pairing checks cover the session loop, stale-change protection, ownership, timing, export, drafts, focus, and mobile layout. Theater checks cover hallway travel, seating, two-tab synchronization, actual video playback, media errors, room chat/reactions, and mobile/solo behavior. The video test generates its own small WebM in the browser, without downloading a fixture. Screenshots are written to ignored `test-results/`.
+`npm test` starts temporary Vite servers on ports 5174 (pairing), 5175 (theater), and 5176 (LeetCode) and runs Playwright checks with installed Chrome, plus Node API/ranking checks. Set `PLAYWRIGHT_CHANNEL` to another installed Chromium channel if needed. LeetCode tests use explicit API fixtures so CI does not depend on a third-party website; live problem and public-profile access is also checked manually during integration. Tests cover navigation, seated computers, ranking, new-Accepted checks, code execution/isolation/timeouts, drafts, HTML sanitization, outages, keyboard focus, mobile layout, and existing pairing/theater flows. The video test generates its own WebM. Screenshots are written to ignored `test-results/`.
 
 ## Structure
 
@@ -65,7 +82,11 @@ Leaving the room pauses your local video. It pauses the shared screening when yo
 - `src/pairing.js`, `src/pairing.css`: session timing, deterministic patch proposals, and studio-consistent pairing styles.
 - `src/TheaterRoom.jsx`, `src/theaterWorld.js`: theater room, sofa interactions, screening controls, and collision geometry.
 - `src/watchParty.js`, `src/theater.css`: local shared playback/presence, queue, chat, reactions, and theater styling.
-- `src/MovementControls.jsx`: shared touch controls for both rooms.
+- `src/MovementControls.jsx`: shared touch controls for all rooms.
+- `src/LeetCodeRoom.jsx`, `src/labWorld.js`, `src/leetcode.css`: algorithm room, playable computers, and study-room UI.
+- `src/LeetCodeBoard.jsx`, `src/leetcodeClient.js`: tracked public profiles, weighted rankings, API state, and statement sanitization.
+- `src/LeetCodeWorkspace.jsx`, `src/practiceRunner.js`, `src/leetcodeProblems.js`: real problem editor, isolated local runner, and room-authored practice cases.
+- `server/leetcode.mjs`, `server/index.mjs`: cached read-only upstream adapter and built-app server. Vite uses the same adapter in dev and preview.
 - `src/data.js`: people, desks, starter HTML.
 - `src/App.jsx`: shell, interaction windows, help, touch controls, ambient sound.
 - `public/assets/`: generated room/chairs and authored character sheets.
