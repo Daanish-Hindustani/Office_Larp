@@ -20,6 +20,7 @@ import {
   updateNpc,
   beginChairPull,
   updateChairAction,
+  theaterDoor,
 } from "./world";
 
 export function Avatar({ sprite = 0, className = "" }) {
@@ -34,7 +35,7 @@ export function Avatar({ sprite = 0, className = "" }) {
   );
 }
 const Office = forwardRef(function Office(
-  { onVisit, onChat, paused, onNearby, emote },
+  { onVisit, onChat, onEnterTheater, paused, onNearby, emote },
   ref,
 ) {
   const playerElement = useRef(null),
@@ -62,7 +63,7 @@ const Office = forwardRef(function Office(
     selected = useRef(null),
     resumeWalk = useRef(null),
     callbacks = useRef({});
-  callbacks.current = { onVisit, onChat, paused, onNearby };
+  callbacks.current = { onVisit, onChat, onEnterTheater, paused, onNearby };
   const [nearby, setNearby] = useState(null),
     [target, setTarget] = useState(null),
     [message, setMessage] = useState(null),
@@ -109,6 +110,11 @@ const Office = forwardRef(function Office(
   function interact(choice = nearest.current) {
     if (!choice || callbacks.current.paused) return;
     const a = actor.current;
+    if (choice.kind === "door") {
+      if (distance(a, theaterDoor) > 12) return;
+      enterTheater();
+      return;
+    }
     if (choice.kind === "stand") {
       resumeWalk.current = null;
       stand();
@@ -160,8 +166,28 @@ const Office = forwardRef(function Office(
       callbacks.current.onVisit(choice.desk);
     }
   }
+  function enterTheater() {
+    stop();
+    actor.current.x = 50;
+    actor.current.y = 90;
+    actor.current.direction = "up";
+    selected.current = null;
+    callbacks.current.onEnterTheater?.();
+  }
   useImperativeHandle(ref, () => ({
     interact: () => interact(),
+    returnFromTheater: () => {
+      stop();
+      actor.current.x = 50;
+      actor.current.y = 90;
+      actor.current.direction = "up";
+      selected.current = null;
+      requestAnimationFrame(() =>
+        playerElement.current
+          ?.closest(".office-map")
+          ?.focus({ preventScroll: true }),
+      );
+    },
     visitSeatedProject: () => {
       const chair = chairs.find((c) => c.id === actor.current.seatId);
       if (chair) callbacks.current.onVisit(chair.desk);
@@ -346,6 +372,8 @@ const Office = forwardRef(function Office(
             }
           }
         }
+        if (a.state === "standing" && a.x > 44 && a.x < 56 && a.y > 97)
+          enterTheater();
         for (const npc of npcs.current) updateNpc(npc, dt, a, npcs.current);
       }
       for (const chair of chairs) {
@@ -368,6 +396,14 @@ const Office = forwardRef(function Office(
         };
       else if (a.state === "standing") {
         const candidates = [
+          {
+            ...theaterDoor,
+            kind: "door",
+            id: "theater",
+            name: "the theater",
+            label: "Enter theater",
+            radius: 11,
+          },
           ...npcs.current.map((n) => ({
             kind: "person",
             id: n.id,
@@ -479,8 +515,17 @@ const Office = forwardRef(function Office(
           }}
         />
       ))}
-      <div className="floor-label workspace-label">THE WORKSPACE</div>
-      <div className="floor-label lounge-label">TAKE A BREATHER</div>
+      <button
+        className="theater-door"
+        aria-label="Walk down the hallway to the theater"
+        onClick={(event) => {
+          event.stopPropagation();
+          walkTo({ x: 50, y: 100 });
+        }}
+      >
+        <span>THEATER</span>
+        <span aria-hidden="true">↓</span>
+      </button>
       {desks.map((d) => (
         <button
           key={d.id}

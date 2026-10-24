@@ -23,6 +23,7 @@ Open http://localhost:5173. `npm run build` creates the static build in `dist/`.
 - While seated, use Open computer below the room; E or movement stands you up.
 - Touch: tap the floor or use the movement buttons below the office.
 - Sound: toggle a quiet synthesized ambient chord.
+- Theater: walk down the bottom-center hallway (or click its THEATER sign) to enter the screening room. Walk through the upper-right doorway there to return to the studio.
 
 Each computer opens an IDE on the left and an interactive demo on the right. The editor contains **starter HTML**, not the React source of the initial mock demo. Run renders that HTML in a sandbox; Reset returns to the demo. HTML drafts are kept per project in `sessionStorage`, including when you close and reopen a computer or reload the tab. If browser storage is unavailable, editing still works for the current workspace. Demo state and chat reset when the workspace closes. Nothing is shared with other browsers.
 
@@ -39,9 +40,19 @@ Use **Pair up** in the header to choose a coworker, or **Pair with…** inside t
 
 Pairing is a local product prototype with deterministic coworker suggestions, not a remote collaboration service. There are no invitations, shared cursors, voice calls, AI requests, or networked edits.
 
+## The screening room
+
+The theater is a second playable room connected to the studio’s existing hallway. Walk or click through its aisles, approach an unoccupied sofa, and press E (or tap the prompt) to settle in. E or movement stands you up. Two familiar coworkers are clearly labeled demo guests. Mobile movement buttons stay beside the room.
+
+The watch party includes three silent ambient screenings, a shared queue, reactions, chat, play/pause, restart, seeking, and an expanded screen view. Add a direct HTTP(S) MP4 or WebM URL to screen your own video. YouTube/Vimeo page links are not supported. Browser codec support and the source server determine whether an external video can play. Video starts muted; sound is a personal setting. If browser autoplay blocks a remote start, **Join playback** lets that guest enable it.
+
+Playback, queue changes, presence, chat, and reactions sync between tabs in the **same browser profile and origin** using `BroadcastChannel`. Use **Copy local room link** or **Open another seat** to try it. The theater link uses `?room=theater`. These links are local to this device; watching across devices would require a room service. If BroadcastChannel is unavailable, the room remains usable in solo mode.
+
+Leaving the room pauses your local video. It pauses the shared screening when you are the last guest; otherwise the remaining guests keep watching. The studio remains mounted, preserving the office simulation while you visit. Room queues and messages stay in memory for the current app instance and are not saved to an account.
+
 ### Verify
 
-`npm test` starts a temporary Vite server on port 5174 and runs Playwright checks with installed Chrome. Set `PLAYWRIGHT_CHANNEL` to another installed Chromium channel if needed. Checks cover the pairing loop, stale-change protection, role ownership, timer/pause behavior, recap export, draft recovery, keyboard focus, and mobile layout. Screenshots are written to ignored `test-results/`.
+`npm test` starts temporary Vite servers on ports 5174 (pairing) and 5175 (theater) and runs Playwright checks with installed Chrome. Set `PLAYWRIGHT_CHANNEL` to another installed Chromium channel if needed. Pairing checks cover the session loop, stale-change protection, ownership, timing, export, drafts, focus, and mobile layout. Theater checks cover hallway travel, seating, two-tab synchronization, actual video playback, media errors, room chat/reactions, and mobile/solo behavior. The video test generates its own small WebM in the browser, without downloading a fixture. Screenshots are written to ignored `test-results/`.
 
 ## Structure
 
@@ -52,6 +63,9 @@ Pairing is a local product prototype with deterministic coworker suggestions, no
 - `src/ProjectWindow.jsx`: project window, interactive demo projects, sandboxed HTML preview.
 - `src/PairLobby.jsx`, `src/PairPanel.jsx`: coworker discovery, goals, roles, reviewed suggestions, notes, and recaps.
 - `src/pairing.js`, `src/pairing.css`: session timing, deterministic patch proposals, and studio-consistent pairing styles.
+- `src/TheaterRoom.jsx`, `src/theaterWorld.js`: theater room, sofa interactions, screening controls, and collision geometry.
+- `src/watchParty.js`, `src/theater.css`: local shared playback/presence, queue, chat, reactions, and theater styling.
+- `src/MovementControls.jsx`: shared touch controls for both rooms.
 - `src/data.js`: people, desks, starter HTML.
 - `src/App.jsx`: shell, interaction windows, help, touch controls, ambient sound.
 - `public/assets/`: generated room/chairs and authored character sheets.
