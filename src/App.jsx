@@ -5,6 +5,8 @@ import PairLobby from "./PairLobby";
 import TheaterRoom from "./TheaterRoom";
 import MovementControls from "./MovementControls";
 import LeetCodeRoom from "./LeetCodeRoom";
+import Leaderboard from "./Leaderboard";
+import { activity } from "./activityClient";
 import { people } from "./data";
 import "@fontsource/press-start-2p";
 import "@fontsource/dm-sans/400.css";
@@ -101,6 +103,7 @@ export default function App() {
   const [active, setActive] = useState(null),
     [help, setHelp] = useState(false),
     [pairLobby, setPairLobby] = useState(false),
+    [leaderboard, setLeaderboard] = useState(null),
     [pairOnOpen, setPairOnOpen] = useState(false),
     [room, setRoom] = useState(() => {
       const requested = new URLSearchParams(window.location.search).get("room");
@@ -108,6 +111,8 @@ export default function App() {
     }),
     [nearby, setNearby] = useState(null);
   const office = useRef(null);
+  useEffect(() => activity.connect(), []);
+  const closeLeaderboard = useCallback(() => setLeaderboard(null), []);
   function enterTheater() {
     setRoom("theater");
     setNearby(null);
@@ -165,6 +170,14 @@ export default function App() {
             <i />5 online
           </span>
           <button
+            className="chrome-button leaderboard-launch"
+            aria-label="Open studio leaderboard"
+            onClick={() => setLeaderboard("people")}
+          >
+            <span aria-hidden="true">▥</span>
+            <span className="leaderboard-launch-label">Leaderboard</span>
+          </button>
+          <button
             className="chrome-button pair-launch"
             aria-label="Pair up"
             onClick={() => setPairLobby(true)}
@@ -210,7 +223,11 @@ export default function App() {
               <Office
                 ref={office}
                 paused={Boolean(
-                  active || help || pairLobby || room !== "studio",
+                  active ||
+                    help ||
+                    pairLobby ||
+                    leaderboard ||
+                    room !== "studio",
                 )}
                 onEnterTheater={enterTheater}
                 onEnterLeetCode={enterLeetCode}
@@ -248,12 +265,12 @@ export default function App() {
           </div>
           <TheaterRoom
             visible={room === "theater"}
-            paused={Boolean(active || help || pairLobby)}
+            paused={Boolean(active || help || pairLobby || leaderboard)}
             onExit={returnToStudio}
           />
           <LeetCodeRoom
             visible={room === "leetcode"}
-            paused={Boolean(active || help || pairLobby)}
+            paused={Boolean(active || help || pairLobby || leaderboard)}
             onExit={returnToStudio}
           />
         </section>
@@ -294,10 +311,27 @@ export default function App() {
           person={active}
           showChat={people.some((person) => person.id === active.id)}
           initialPairing={pairOnOpen}
+          onLeaderboard={() => {
+            setActive(null);
+            setLeaderboard("pairs");
+          }}
           onClose={closeProject}
         />
       )}
       {help && <Help onClose={() => setHelp(false)} />}
+      {leaderboard && (
+        <Leaderboard
+          initialTab={leaderboard}
+          onClose={closeLeaderboard}
+          onPair={(person) => {
+            setLeaderboard(null);
+            if (person) {
+              setPairOnOpen(true);
+              setActive(person);
+            } else setPairLobby(true);
+          }}
+        />
+      )}
       {pairLobby && (
         <PairLobby
           onClose={closePairLobby}

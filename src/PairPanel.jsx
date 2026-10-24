@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Avatar } from "./Office";
 import { formatTime, pairingBriefs } from "./pairing";
+import { useActivity } from "./activityClient";
 
 export function PairBar({ person, pair, onEnd }) {
   const { session, remaining, elapsed, swap, togglePause } = pair;
@@ -51,6 +52,7 @@ export default function PairPanel({
 }) {
   const { session, start, update, remaining } = pair;
   const [goal, setGoal] = useState(pairingBriefs[person.kind].goal);
+  const { status } = useActivity();
   if (!session || session.phase !== "active")
     return (
       <div className="pair-panel pair-setup">
@@ -238,6 +240,11 @@ export default function PairPanel({
           onChange={(e) => update((s) => ({ ...s, notes: e.target.value }))}
         />
       </section>
+      <p className="pair-tracking-note" role="status">
+        {status === "connected"
+          ? "◷ Active, visible pairing time counts toward your team’s leaderboard hours. Pauses are excluded."
+          : "◷ Leaderboard tracking is waiting for a connection."}
+      </p>
       <section className="pair-activity">
         <h3>Little steps, together</h3>
         <ol>
@@ -250,7 +257,14 @@ export default function PairPanel({
   );
 }
 
-export function PairRecap({ person, pair, code, onReturn, onClose }) {
+export function PairRecap({
+  person,
+  pair,
+  code,
+  onReturn,
+  onClose,
+  onLeaderboard,
+}) {
   const { session, elapsed } = pair;
   function download() {
     const text = `# Pairing with ${person.name}\n\nGoal: ${session.goal}\nTime together: ${formatTime(elapsed)}\nRole swaps: ${session.swaps}\nPreview runs: ${session.runs}\nChanges accepted: ${session.changes}\n\n${session.checks.map((done, i) => `- [${done ? "x" : " "}] ${["Agree on the change", "Run the shared code", "Review the result"][i]}`).join("\n")}\n\n## Notes\n${session.notes || "No notes yet."}\n\n## HTML\n\n\`\`\`html\n${code}\n\`\`\`\n`;
@@ -300,6 +314,11 @@ export function PairRecap({ person, pair, code, onReturn, onClose }) {
         </div>
       </div>
       {session.notes && <blockquote>{session.notes}</blockquote>}
+      {onLeaderboard && (
+        <button className="pair-recap-leaderboard" onClick={onLeaderboard}>
+          ▥ View your pair on the leaderboard ↗
+        </button>
+      )}
       <div className="pair-recap-actions">
         <button className="pair-primary" onClick={download}>
           ↓ Save recap & code

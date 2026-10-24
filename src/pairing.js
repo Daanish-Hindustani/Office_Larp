@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { activity } from "./activityClient";
 
 export const pairingBriefs = {
   garden: {
@@ -85,8 +86,10 @@ export function proposeChange(code, person, type) {
 }
 
 export function usePairSession(person) {
+  const tracking = useRef(null);
   const [session, setSession] = useState(null);
   const [now, setNow] = useState(Date.now);
+  useEffect(() => () => activity.endPair(tracking.current), []);
   useEffect(() => {
     if (session?.phase !== "active" || session.paused) return;
     const timer = setInterval(() => setNow(Date.now()), 500);
@@ -94,6 +97,7 @@ export function usePairSession(person) {
   }, [session?.phase, session?.paused]);
 
   function start(goal) {
+    tracking.current = activity.beginPair(person, goal);
     const time = Date.now();
     setNow(time);
     setSession({
@@ -139,6 +143,7 @@ export function usePairSession(person) {
     }));
   }
   function togglePause() {
+    activity.pausePair(tracking.current, !session.paused);
     const time = Date.now();
     setNow(time);
     update((s) => ({
@@ -150,6 +155,7 @@ export function usePairSession(person) {
     }));
   }
   function end() {
+    activity.endPair(tracking.current);
     const time = Date.now();
     update((s) => ({
       ...s,

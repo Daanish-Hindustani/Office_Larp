@@ -1,6 +1,6 @@
 # Office Hours
 
-A playable, UI-first pixel coworking office, with local mock coworkers, a communal theater, and a real LeetCode practice room. Built with React + Vite and a small read-only Node adapter for LeetCode data.
+A playable, UI-first pixel coworking office, with local mock coworkers, a communal theater, a real LeetCode practice room, and shared studio time standings. Built with React + Vite and a small Node server for LeetCode data and persisted activity.
 
 ## Run
 
@@ -11,7 +11,7 @@ npm run dev
 
 Open http://localhost:5173. `npm run build` creates the static build in `dist/`.
 
-The development and preview servers include the LeetCode adapter. To serve the built app with the same API, run `npm run build` followed by `npm start` and open http://127.0.0.1:4173. `PORT` and `HOST` can override that address. A static-file-only host cannot serve the LeetCode API; use the included Node server or route `/api/leetcode/` to it. Tested with Node 22.
+The development and preview servers include both APIs. To serve the built app with the same APIs, run `npm run build` followed by `npm start` and open http://127.0.0.1:4173. `PORT` and `HOST` can override that address. A static-file-only host cannot serve the APIs; use the included Node server or route `/api/leetcode/` and `/api/activity/` to it. Tested with Node 22.
 
 ## Explore
 
@@ -28,7 +28,7 @@ The development and preview servers include the LeetCode adapter. To serve the b
 - Theater: walk down the bottom-center hallway (or click its THEATER sign) to enter the screening room. Walk through the upper-right doorway there to return to the studio.
 - Algorithm room: enter the CODE CLUB doorway immediately to the right of the theater doorway in the original studio. Approach a computer, press E to sit, then press E or Open computer to start a real problem. Movement or Stand up leaves the chair.
 
-Each computer opens an IDE on the left and an interactive demo on the right. The editor contains **starter HTML**, not the React source of the initial mock demo. Run renders that HTML in a sandbox; Reset returns to the demo. HTML drafts are kept per project in `sessionStorage`, including when you close and reopen a computer or reload the tab. If browser storage is unavailable, editing still works for the current workspace. Demo state and chat reset when the workspace closes. Nothing is shared with other browsers.
+Each computer opens an IDE on the left and an interactive demo on the right. The editor contains **starter HTML**, not the React source of the initial mock demo. Run renders that HTML in a sandbox; Reset returns to the demo. HTML drafts are kept per project in `sessionStorage`, including when you close and reopen a computer or reload the tab. If browser storage is unavailable, editing still works for the current workspace. Demo state and chat reset when the workspace closes. Code and chat are not shared with other browsers.
 
 ## Pair programming
 
@@ -42,6 +42,19 @@ Use **Pair up** in the header to choose a coworker, or **Pair with…** inside t
 - **Finish**, Escape, or the workspace close button ends the active session and opens a recap. Save the recap and HTML as Markdown, return to the workspace, or head back to the office. Notes and session metrics are retained in the recap until you leave it; save it to keep them.
 
 Pairing is a local product prototype with deterministic coworker suggestions, not a remote collaboration service. There are no invitations, shared cursors, voice calls, AI requests, or networked edits.
+
+## Studio leaderboard
+
+Open **Leaderboard** from the header in any room, or from a finished pairing recap. **People** ranks visitors by online hours or pairing hours; **Pairs** ranks each team’s active time together. Switch between **This week** (Monday 00:00 UTC) and **All time**. Small totals show `<0.01 h` alongside seconds/minutes so a first session is visible immediately. Equal exact totals share a rank; zero-time entries remain unranked. Expand a team to see its five most recent session goals and times, then pair with that coworker again.
+
+- A browser profile gets a persistent random visitor ID in local storage. **Edit name** changes the display name without splitting its history. Tabs share the identity; separate browser profiles/devices are separate visitors. Blocked storage uses an explicitly temporary identity.
+- Five-second heartbeats record server-observed time while the tab is visible and the connection is healthy. Pausing a pair session stops pair time while online time continues. Hidden tabs, offline periods, and server restarts earn no unobserved time. Long heartbeat gaps (over 15 seconds) are discarded rather than treated as work.
+- Intervals are merged, so overlapping tabs cannot double-count someone’s online hours, a person’s pairing hours, or a team’s time. Pair IDs are canonical unordered member IDs: A+B and B+A are the same team; A+C is a different team. Role swaps and name changes never change the team. Returning to the same team adds another session to its total.
+- Pairing is part of online time, not an additional online-hours bonus. The recap’s elapsed timer can include background/offline time; only observed foreground time reaches the board. Sessions with simulated coworkers are marked local practice. Those coworkers have no fabricated online hours and do not appear as real visitor profiles.
+
+The board is shared by browsers connecting to the **same Node server**, not only by tabs. `GET /api/activity/board` returns both periods; `POST /api/activity/heartbeat` records bounded activity. The server uses receipt times, validates IDs/partners/body size, rejects cross-origin browser writes, serializes updates, and atomically saves `.data/activity.json` (gitignored). Set `OFFICE_ACTIVITY_FILE` to choose a persistent file/volume; run one server process per activity file. Persist this file across deployments to retain totals. If a save fails, the UI shows a reconnect/retry state rather than claiming the latest time was saved.
+
+Visitor identities are anonymous browser profiles, not authenticated accounts. Names, session goals, and standings are visible to other visitors to that server. This is a studio prototype, not an abuse-resistant public competition: clearing browser data creates a new identity, and production account ownership, moderation, and multi-instance storage would need an authenticated service. There are no seeded hours, simulated background accrual, or retrospective estimates for sessions before tracking was added.
 
 ## The screening room
 
@@ -69,7 +82,7 @@ After an official submission, **Check Accepted** refreshes the selected profile 
 
 ### Verify
 
-`npm test` starts temporary Vite servers on ports 5174 (pairing), 5175 (theater), and 5176 (LeetCode) and runs Playwright checks with installed Chrome, plus Node API/ranking checks. Set `PLAYWRIGHT_CHANNEL` to another installed Chromium channel if needed. LeetCode tests use explicit API fixtures so CI does not depend on a third-party website; live problem and public-profile access is also checked manually during integration. Tests cover navigation, seated computers, ranking, new-Accepted checks, code execution/isolation/timeouts, drafts, HTML sanitization, outages, keyboard focus, mobile layout, and existing pairing/theater flows. The video test generates its own WebM. Screenshots are written to ignored `test-results/`.
+`npm test` starts temporary Vite servers on ports 5174 (pairing), 5175 (theater), 5176 (LeetCode), and 5177 (studio leaderboard) and runs Playwright checks with installed Chrome, plus Node API/ranking checks. Set `PLAYWRIGHT_CHANNEL` to another installed Chromium channel if needed. Each test server uses its own ignored activity file. LeetCode tests use explicit API fixtures so CI does not depend on a third-party website; live problem and public-profile access is also checked manually during integration. Tests cover navigation, seated computers, ranking, new-Accepted checks, code execution/isolation/timeouts, drafts, HTML sanitization, outages, keyboard focus, mobile layout, and existing pairing/theater flows. Activity checks cover interval deduplication, two distinct pairs, pause/resume, connection gaps, identity changes, UTC weekly clipping, save/restart, and API validation. The video test generates its own WebM. Screenshots are written to ignored `test-results/`.
 
 ## Structure
 
@@ -87,6 +100,8 @@ After an official submission, **Check Accepted** refreshes the selected profile 
 - `src/LeetCodeBoard.jsx`, `src/leetcodeClient.js`: tracked public profiles, weighted rankings, API state, and statement sanitization.
 - `src/LeetCodeWorkspace.jsx`, `src/practiceRunner.js`, `src/leetcodeProblems.js`: real problem editor, isolated local runner, and room-authored practice cases.
 - `server/leetcode.mjs`, `server/index.mjs`: cached read-only upstream adapter and built-app server. Vite uses the same adapter in dev and preview.
+- `src/Leaderboard.jsx`, `src/leaderboard.css`: people/pair standings, period/metric controls, team history, identity editing, and matching studio styling.
+- `src/activityClient.js`, `server/activity.mjs`, `server/activityModel.mjs`: visibility-aware heartbeats, server persistence, interval unions, canonical team IDs, and UTC weekly totals.
 - `src/data.js`: people, desks, starter HTML.
 - `src/App.jsx`: shell, interaction windows, help, touch controls, ambient sound.
 - `public/assets/`: generated room/chairs and authored character sheets.

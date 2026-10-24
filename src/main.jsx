@@ -5,6 +5,7 @@ import "./style.css";
 import "./pairing.css";
 import "./theater.css";
 import "./leetcode.css";
+import "./leaderboard.css";
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <App />

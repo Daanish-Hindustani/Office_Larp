@@ -17,7 +17,13 @@ before(async () => {
       "5175",
       "--strictPort",
     ],
-    { stdio: "pipe" },
+    {
+      stdio: "pipe",
+      env: {
+        ...process.env,
+        OFFICE_ACTIVITY_FILE: `test-results/theater-activity-${process.pid}.json`,
+      },
+    },
   );
   let output = "";
   server.stdout.on("data", (chunk) => {
