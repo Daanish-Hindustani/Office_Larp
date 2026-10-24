@@ -18,7 +18,13 @@ before(async () => {
       "5176",
       "--strictPort",
     ],
-    { stdio: "pipe" },
+    {
+      stdio: "pipe",
+      env: {
+        ...process.env,
+        OFFICE_ACTIVITY_FILE: `test-results/leetcode-activity-${process.pid}.json`,
+      },
+    },
   );
   let output = "";
   server.stdout.on("data", (data) => (output += data));
@@ -561,6 +567,7 @@ test("mobile workspace, official-site handoff, and blocked-storage fallback work
       false,
     );
     await page
+      .getByLabel("Algorithm room view")
       .getByRole("button", { name: "Leaderboard", exact: false })
       .click();
     await addProfile(page, "Alice");

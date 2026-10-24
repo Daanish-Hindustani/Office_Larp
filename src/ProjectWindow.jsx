@@ -139,6 +139,7 @@ export default function ProjectWindow({
   onClose,
   showChat = false,
   initialPairing = false,
+  onLeaderboard,
 }) {
   const [code, setCode] = useState(() => {
       try {
@@ -273,6 +274,7 @@ export default function ProjectWindow({
             pair={pair}
             code={code}
             onClose={onClose}
+            onLeaderboard={onLeaderboard}
             onReturn={() => {
               pair.update((s) => ({ ...s, phase: "idle" }));
               setNotice("");
