@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { projectHTML } from "./data";
 import ChatWindow from "./ChatWindow";
+import PairPanel, { PairBar, PairRecap } from "./PairPanel";
+import { proposeChange, usePairSession } from "./pairing";
 
 function Demo({ kind }) {
   const [count, setCount] = useState(0),
@@ -132,26 +134,96 @@ function Demo({ kind }) {
     </div>
   );
 }
-export default function ProjectWindow({ person, onClose, showChat = false }) {
-  const [code, setCode] = useState(() => projectHTML(person)),
+export default function ProjectWindow({
+  person,
+  onClose,
+  showChat = false,
+  initialPairing = false,
+}) {
+  const [code, setCode] = useState(() => {
+      try {
+        return (
+          sessionStorage.getItem(`office-hours:html:${person.id}`) ??
+          projectHTML(person)
+        );
+      } catch {
+        return projectHTML(person);
+      }
+    }),
     [output, setOutput] = useState(null),
+    [runVersion, setRunVersion] = useState(0),
     [tab, setTab] = useState("index.html"),
     [response, setResponse] = useState(
       person.hello ||
         "Your desk, your ideas. Edit the HTML and run it to bring something to life.",
     );
+  const pair = usePairSession(person);
+  const pairing = pair.session?.phase === "active";
+  const ended = pair.session?.phase === "ended";
+  const [sideTab, setSideTab] = useState(initialPairing ? "pair" : "chat"),
+    [mobilePanel, setMobilePanel] = useState(
+      initialPairing ? "partner" : "code",
+    ),
+    [suggestion, setSuggestion] = useState(null),
+    [notice, setNotice] = useState(""),
+    [draftSaved, setDraftSaved] = useState(false);
   const closeRef = useRef(null);
+  const lineNumbers = useRef(null);
+  const requestClose = useRef(null);
+  requestClose.current = () => {
+    if (pairing) {
+      pair.end();
+      setSuggestion(null);
+    } else onClose();
+  };
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(`office-hours:html:${person.id}`, code);
+      setDraftSaved(true);
+    } catch {
+      setDraftSaved(false);
+    }
+  }, [code, person.id]);
+  useEffect(() => {
+    if (ended) closeRef.current?.focus();
+  }, [ended]);
+  function suggest(type) {
+    const next = proposeChange(code, person, type);
+    setSuggestion(next.unavailable ? null : next);
+    setNotice(next.unavailable || "");
+  }
+  function applySuggestion() {
+    if (!suggestion || !pairing || pair.session.paused) return;
+    if (suggestion.source !== code) {
+      setSuggestion(null);
+      setNotice(
+        "The code changed since this suggestion. Ask for a fresh idea so your edits stay safe.",
+      );
+      return;
+    }
+    setCode(suggestion.code);
+    setTab("index.html");
+    setMobilePanel("code");
+    pair.log(
+      `${person.name}’s change accepted: ${suggestion.title.toLowerCase()}.`,
+      { changes: pair.session.changes + 1 },
+    );
+    setNotice("Change applied. Run the code to see it together.");
+    setSuggestion(null);
+  }
   useEffect(() => {
     const prev = document.activeElement;
     closeRef.current?.focus();
     const key = (e) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") requestClose.current();
       if (e.key === "Tab") {
         const nodes = [
           ...document.querySelectorAll(
             ".project-window button,.project-window textarea,.project-window input,.project-window iframe",
           ),
-        ].filter((n) => !n.disabled);
+        ].filter(
+          (n) => !n.disabled && n.tabIndex >= 0 && n.getClientRects().length,
+        );
         const first = nodes[0],
           last = nodes[nodes.length - 1];
         if (e.shiftKey && document.activeElement === first) {
@@ -187,109 +259,297 @@ export default function ProjectWindow({ person, onClose, showChat = false }) {
             <span className="muted">{person.name}’s workspace / </span>
             <strong id="project-title">{person.project}</strong>
           </div>
-          <button ref={closeRef} onClick={onClose} aria-label="Close project">
+          <button
+            ref={closeRef}
+            onClick={() => requestClose.current()}
+            aria-label={pairing ? "Finish pairing session" : "Close project"}
+          >
             ✕ <kbd>esc</kbd>
           </button>
         </header>
-        <div className="project-intro">
-          <span
-            className="tiny-avatar"
-            style={{
-              backgroundImage: `url('/assets/game-characters/char_${person.sprite}.png')`,
+        {ended && (
+          <PairRecap
+            person={person}
+            pair={pair}
+            code={code}
+            onClose={onClose}
+            onReturn={() => {
+              pair.update((s) => ({ ...s, phase: "idle" }));
+              setNotice("");
+              setSideTab("pair");
+              setMobilePanel("partner");
             }}
           />
-          <div className="coworker-response" role="status" aria-live="polite">
-            {showChat && <span>{person.name} says</span>}
-            <p>{response}</p>
+        )}
+        <div className="workspace-content" hidden={ended}>
+          <div className="project-intro">
+            <span
+              className="tiny-avatar"
+              style={{
+                backgroundImage: `url('/assets/game-characters/char_${person.sprite}.png')`,
+              }}
+            />
+            <div className="coworker-response" role="status" aria-live="polite">
+              {showChat && <span>{person.name} says</span>}
+              <p>{response}</p>
+            </div>
+            <span className="live-label">
+              <i /> MOCK WORKSPACE
+            </span>
+            {showChat && !pairing && (
+              <button
+                className="pair-workspace-invite"
+                onClick={() => {
+                  setSideTab("pair");
+                  setMobilePanel("partner");
+                }}
+              >
+                ↔ Pair with {person.name}
+              </button>
+            )}
           </div>
-          <span className="live-label">
-            <i /> MOCK WORKSPACE
-          </span>
-        </div>
-        <div className="workspace-body">
-          <div className="editor-layout">
-            <section className="code-pane">
-              <div className="pane-toolbar">
-                <button
-                  className={tab === "index.html" ? "selected" : ""}
-                  onClick={() => setTab("index.html")}
-                >
-                  <span className="code-file">◇</span> index.html
-                </button>
-                <button
-                  className={tab === "README.md" ? "selected" : ""}
-                  onClick={() => setTab("README.md")}
-                >
-                  README.md
-                </button>
-                <button
-                  className="run"
-                  onClick={() => {
-                    setTab("index.html");
-                    setOutput(code);
+          {pairing && (
+            <PairBar
+              person={person}
+              pair={pair}
+              onEnd={() => requestClose.current()}
+            />
+          )}
+          {showChat && (
+            <div className="mobile-workspace-tabs" aria-label="Workspace view">
+              <button
+                aria-pressed={mobilePanel === "code"}
+                onClick={() => setMobilePanel("code")}
+              >
+                ⌘ Shared code
+              </button>
+              <button
+                aria-pressed={mobilePanel === "partner"}
+                onClick={() => setMobilePanel("partner")}
+              >
+                ↔ Partner & chat
+              </button>
+            </div>
+          )}
+          <div className="workspace-body" data-mobile-panel={mobilePanel}>
+            <div className="editor-layout">
+              <section className="code-pane">
+                <div className="pane-toolbar">
+                  <button
+                    className={tab === "index.html" ? "selected" : ""}
+                    onClick={() => setTab("index.html")}
+                  >
+                    <span className="code-file">◇</span> index.html
+                  </button>
+                  <button
+                    className={tab === "README.md" ? "selected" : ""}
+                    onClick={() => setTab("README.md")}
+                  >
+                    README.md
+                  </button>
+                  <button
+                    className="run"
+                    onClick={() => {
+                      setTab("index.html");
+                      setOutput(code);
+                      setRunVersion((version) => version + 1);
+                      if (pairing) {
+                        pair.update((s) => ({
+                          ...s,
+                          runs: s.runs + 1,
+                          checks: [s.checks[0], true, s.checks[2]],
+                          activity: [
+                            "Shared HTML opened in the preview.",
+                            ...s.activity,
+                          ].slice(0, 8),
+                        }));
+                      }
+                    }}
+                    disabled={pairing && pair.session.paused}
+                  >
+                    ▶ Run
+                  </button>
+                </div>
+                {pairing && (
+                  <div className="pair-editor-presence" role="status">
+                    <i className="green-dot" />
+                    {pair.session.paused
+                      ? "Session paused · take a breather"
+                      : pair.session.driver === "you"
+                        ? `${person.name} is navigating · you have the keyboard`
+                        : `${person.name} is driving · review a suggested change in Pair session`}
+                  </div>
+                )}
+                {tab === "index.html" ? (
+                  <div className="code-area">
+                    <div
+                      className="line-numbers"
+                      aria-hidden="true"
+                      ref={lineNumbers}
+                    >
+                      {code.split("\n").map((_, i) => (
+                        <div key={i}>{i + 1}</div>
+                      ))}
+                    </div>
+                    <textarea
+                      spellCheck="false"
+                      aria-label="Project HTML code"
+                      value={code}
+                      readOnly={
+                        pairing &&
+                        (pair.session.driver === "partner" ||
+                          pair.session.paused)
+                      }
+                      onChange={(e) => setCode(e.target.value)}
+                      onScroll={(e) => {
+                        if (lineNumbers.current)
+                          lineNumbers.current.scrollTop =
+                            e.currentTarget.scrollTop;
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <div className="readme">
+                    <h2>{person.project}</h2>
+                    <p>A tiny hackathon experiment by {person.name}.</p>
+                    <p>
+                      The initial preview is an interactive mock. Edit
+                      index.html and hit Run to render your own HTML in the
+                      sandbox.
+                    </p>
+                    <p>
+                      Your HTML draft is kept in this browser tab when storage
+                      is available. Pair with a coworker to set a goal, review
+                      ideas, and take turns driving.
+                    </p>
+                  </div>
+                )}
+                <footer className="editor-status">
+                  <span>
+                    {draftSaved
+                      ? "✓ Draft kept in this tab"
+                      : "⌘ HTML · draft not saved"}
+                  </span>
+                  <span>UTF-8 · {code.split("\n").length} lines</span>
+                </footer>
+              </section>
+              <section className="preview-pane">
+                <div className="pane-toolbar">
+                  <span>
+                    <i className="green-dot" />{" "}
+                    {output !== null && output !== code
+                      ? "Changes to run"
+                      : "Live preview"}
+                  </span>
+                  <button
+                    onClick={() => setOutput(null)}
+                    title="Reset demo preview"
+                  >
+                    ↻ Reset
+                  </button>
+                </div>
+                <div className="browser-address">
+                  ▣ <span>localhost / {person.id}</span>
+                  <span>↗</span>
+                </div>
+                {output === null ? (
+                  <Demo kind={person.kind} />
+                ) : (
+                  <iframe
+                    key={runVersion}
+                    title="Your project preview"
+                    sandbox="allow-scripts"
+                    srcDoc={output}
+                  />
+                )}
+              </section>
+            </div>
+            {showChat && (
+              <aside
+                className="workspace-companion"
+                aria-label="Coworker tools"
+              >
+                <div
+                  className="companion-tabs"
+                  role="tablist"
+                  aria-label="Coworker tools"
+                  onKeyDown={(event) => {
+                    if (
+                      !["ArrowLeft", "ArrowRight", "Home", "End"].includes(
+                        event.key,
+                      )
+                    )
+                      return;
+                    event.preventDefault();
+                    const next =
+                      event.key === "Home"
+                        ? "chat"
+                        : event.key === "End"
+                          ? "pair"
+                          : sideTab === "chat"
+                            ? "pair"
+                            : "chat";
+                    setSideTab(next);
+                    document.getElementById(`${next}-tab`)?.focus();
                   }}
                 >
-                  ▶ Run
-                </button>
-              </div>
-              {tab === "index.html" ? (
-                <div className="code-area">
-                  <div className="line-numbers" aria-hidden="true">
-                    {code.split("\n").map((_, i) => (
-                      <div key={i}>{i + 1}</div>
-                    ))}
-                  </div>
-                  <textarea
-                    spellCheck="false"
-                    aria-label="Project HTML code"
-                    value={code}
-                    onChange={(e) => setCode(e.target.value)}
+                  <button
+                    id="chat-tab"
+                    role="tab"
+                    tabIndex={sideTab === "chat" ? 0 : -1}
+                    aria-selected={sideTab === "chat"}
+                    aria-controls="chat-panel"
+                    onClick={() => setSideTab("chat")}
+                  >
+                    ☏ Conversation
+                  </button>
+                  <button
+                    id="pair-tab"
+                    role="tab"
+                    tabIndex={sideTab === "pair" ? 0 : -1}
+                    aria-selected={sideTab === "pair"}
+                    aria-controls="pair-panel"
+                    onClick={() => setSideTab("pair")}
+                  >
+                    ↔ Pair session{pairing && <i className="green-dot" />}
+                  </button>
+                </div>
+                <div
+                  id="chat-panel"
+                  role="tabpanel"
+                  aria-labelledby="chat-tab"
+                  hidden={sideTab !== "chat"}
+                  className="companion-panel companion-chat"
+                >
+                  <ChatWindow
+                    person={person}
+                    onReply={setResponse}
+                    autoFocus={!initialPairing}
                   />
                 </div>
-              ) : (
-                <div className="readme">
-                  <h2>{person.project}</h2>
-                  <p>A tiny hackathon experiment by {person.name}.</p>
-                  <p>
-                    The initial preview is an interactive mock. Edit index.html
-                    and hit Run to render your own HTML in the sandbox.
-                  </p>
-                  <p>Everything lives in this session. No backend needed.</p>
-                </div>
-              )}
-              <footer className="editor-status">
-                <span>⌘ HTML</span>
-                <span>UTF-8 · {code.split("\n").length} lines</span>
-              </footer>
-            </section>
-            <section className="preview-pane">
-              <div className="pane-toolbar">
-                <span>
-                  <i className="green-dot" /> Live preview
-                </span>
-                <button
-                  onClick={() => setOutput(null)}
-                  title="Reset demo preview"
+                <div
+                  id="pair-panel"
+                  role="tabpanel"
+                  aria-labelledby="pair-tab"
+                  hidden={sideTab !== "pair"}
+                  className="companion-panel"
                 >
-                  ↻ Reset
-                </button>
-              </div>
-              <div className="browser-address">
-                ▣ <span>localhost / {person.id}</span>
-                <span>↗</span>
-              </div>
-              {output === null ? (
-                <Demo kind={person.kind} />
-              ) : (
-                <iframe
-                  title="Your project preview"
-                  sandbox="allow-scripts"
-                  srcDoc={output}
-                />
-              )}
-            </section>
+                  <PairPanel
+                    person={person}
+                    pair={pair}
+                    suggestion={suggestion}
+                    notice={notice}
+                    onSuggest={suggest}
+                    onApply={applySuggestion}
+                    onDismiss={() => {
+                      setSuggestion(null);
+                      setNotice("");
+                    }}
+                  />
+                </div>
+              </aside>
+            )}
           </div>
-          {showChat && <ChatWindow person={person} onReply={setResponse} />}
         </div>
       </section>
     </div>

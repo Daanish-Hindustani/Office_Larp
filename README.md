@@ -24,7 +24,24 @@ Open http://localhost:5173. `npm run build` creates the static build in `dist/`.
 - Touch: tap the floor or use the movement buttons below the office.
 - Sound: toggle a quiet synthesized ambient chord.
 
-Each computer opens an IDE on the left and an interactive demo on the right. The editor contains **starter HTML**, not the React source of the initial mock demo. Run renders that HTML in a sandbox; Reset returns to the demo. Edits, tasks, and demo state reset when you close the computer. Nothing is saved or shared with other browsers yet.
+Each computer opens an IDE on the left and an interactive demo on the right. The editor contains **starter HTML**, not the React source of the initial mock demo. Run renders that HTML in a sandbox; Reset returns to the demo. HTML drafts are kept per project in `sessionStorage`, including when you close and reopen a computer or reload the tab. If browser storage is unavailable, editing still works for the current workspace. Demo state and chat reset when the workspace closes. Nothing is shared with other browsers.
+
+## Pair programming
+
+Use **Pair up** in the header to choose a coworker, or **Pair with…** inside their workspace. Set a small goal and start a local practice session. The studio pauses while you work.
+
+- You start as the driver. Your coworker navigates; ask for a headline, color, or accessibility idea in **Pair session**.
+- Review each proposed change before applying it. If the source changed, the suggestion is rejected so it cannot overwrite your edits.
+- **Swap roles** hands the keyboard to the simulated coworker. Your editor becomes read-only; choose a direction and review their proposed change. Swap back to edit freely.
+- Five-minute turns suggest a handoff. Pause freezes the timer, editing, and code actions; resume whenever you are ready. Swapping starts a fresh turn.
+- Run opens the current HTML in the existing sandbox and checks the run step. Keep a small checklist and notes alongside the conversation.
+- **Finish**, Escape, or the workspace close button ends the active session and opens a recap. Save the recap and HTML as Markdown, return to the workspace, or head back to the office. Notes and session metrics are retained in the recap until you leave it; save it to keep them.
+
+Pairing is a local product prototype with deterministic coworker suggestions, not a remote collaboration service. There are no invitations, shared cursors, voice calls, AI requests, or networked edits.
+
+### Verify
+
+`npm test` starts a temporary Vite server on port 5174 and runs Playwright checks with installed Chrome. Set `PLAYWRIGHT_CHANNEL` to another installed Chromium channel if needed. Checks cover the pairing loop, stale-change protection, role ownership, timer/pause behavior, recap export, draft recovery, keyboard focus, and mobile layout. Screenshots are written to ignored `test-results/`.
 
 ## Structure
 
@@ -33,6 +50,8 @@ Each computer opens an IDE on the left and an interactive demo on the right. The
 - `src/world.js`: collision geometry, movement, chairs, pathfinding, NPC routines.
 - `src/ChatWindow.jsx`: embedded mock coworker chat with suggested prompts.
 - `src/ProjectWindow.jsx`: project window, interactive demo projects, sandboxed HTML preview.
+- `src/PairLobby.jsx`, `src/PairPanel.jsx`: coworker discovery, goals, roles, reviewed suggestions, notes, and recaps.
+- `src/pairing.js`, `src/pairing.css`: session timing, deterministic patch proposals, and studio-consistent pairing styles.
 - `src/data.js`: people, desks, starter HTML.
 - `src/App.jsx`: shell, interaction windows, help, touch controls, ambient sound.
 - `public/assets/`: generated room/chairs and authored character sheets.

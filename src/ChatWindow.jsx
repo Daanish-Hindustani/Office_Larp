@@ -13,7 +13,7 @@ function reply(person, text) {
     return "A short walk and a coffee usually fix at least half my bugs. The coffee corner is up on the right.";
   return `I like that! I’m keeping ${person.project} small for now—something fun that I can actually finish. Tell me more about your idea.`;
 }
-export default function ChatWindow({ person, onReply }) {
+export default function ChatWindow({ person, onReply, autoFocus = true }) {
   const [messages, setMessages] = useState([
     {
       who: "npc",
@@ -27,7 +27,7 @@ export default function ChatWindow({ person, onReply }) {
     timer = useRef(null);
   useEffect(() => {
     const previous = document.activeElement;
-    input.current?.focus();
+    if (autoFocus) input.current?.focus();
     return () => {
       clearTimeout(timer.current);
       previous?.focus();
@@ -50,7 +50,7 @@ export default function ChatWindow({ person, onReply }) {
       setMessages((m) => [...m, { who: "npc", text: response }]);
       onReply(response);
       setTyping(false);
-      input.current?.focus();
+      if (input.current?.getClientRects().length) input.current.focus();
     }, 650);
   }
   return (
