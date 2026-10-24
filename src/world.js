@@ -30,11 +30,12 @@ const obstacles = [
   { x: 88, y: 43, w: 8, h: 35 },
 ];
 export const distance = (a, b) => Math.hypot((a.x - b.x) * 1.5, a.y - b.y);
+export const theaterDoor = { x: 50, y: 95 };
 export const canWalk = (x, y, ignoreChairId = null) =>
   x > 7 &&
   x < 94 &&
   y > 24 &&
-  y < 93 &&
+  (y < 93 || (x > 44 && x < 56 && y < 102)) &&
   !obstacles.some(
     (o) =>
       o.chairId !== ignoreChairId &&
@@ -43,11 +44,11 @@ export const canWalk = (x, y, ignoreChairId = null) =>
       y > o.y - 1 + 0.001 &&
       y < o.y + o.h + 1 - 0.001,
   );
-export function pathTo(start, end) {
+export function pathTo(start, end, walkable = canWalk) {
   const snap = (v) => Math.round(v / 2) * 2;
   const from = [snap(start.x), snap(start.y)],
     to = [snap(end.x), snap(end.y)];
-  if (!canWalk(...to)) return [];
+  if (!walkable(...to)) return [];
   const queue = [from],
     seen = new Map([[from.join(","), null]]);
   let found;
@@ -65,7 +66,7 @@ export function pathTo(start, end) {
     ]) {
       const next = [p[0] + dx, p[1] + dy],
         key = next.join(",");
-      if (canWalk(...next) && !seen.has(key)) {
+      if (walkable(...next) && !seen.has(key)) {
         seen.set(key, p);
         queue.push(next);
       }
@@ -79,7 +80,15 @@ export function pathTo(start, end) {
   }
   return path.slice(1);
 }
-export function move(actor, dx, dy, dt, speed = 24, blocked = () => false) {
+export function move(
+  actor,
+  dx,
+  dy,
+  dt,
+  speed = 24,
+  blocked = () => false,
+  walkable = canWalk,
+) {
   const len = Math.hypot(dx * 1.5, dy),
     old = { x: actor.x, y: actor.y };
   if (len) {
@@ -90,12 +99,12 @@ export function move(actor, dx, dy, dt, speed = 24, blocked = () => false) {
       sx = (dx / len) * travel,
       sy = (dy / len) * travel;
     if (
-      canWalk(actor.x + sx, actor.y, docking) &&
+      walkable(actor.x + sx, actor.y, docking) &&
       !blocked({ x: actor.x + sx, y: actor.y })
     )
       actor.x += sx;
     if (
-      canWalk(actor.x, actor.y + sy, docking) &&
+      walkable(actor.x, actor.y + sy, docking) &&
       !blocked({ x: actor.x, y: actor.y + sy })
     )
       actor.y += sy;
@@ -120,7 +129,14 @@ export function move(actor, dx, dy, dt, speed = 24, blocked = () => false) {
     : 0;
   return traveled;
 }
-export function followPath(actor, path, dt, speed, blocked) {
+export function followPath(
+  actor,
+  path,
+  dt,
+  speed,
+  blocked,
+  walkable = canWalk,
+) {
   while (path.length && distance(actor, path[0]) < 0.45) {
     const reached = path.shift();
     actor.x = reached.x;
@@ -131,7 +147,7 @@ export function followPath(actor, path, dt, speed, blocked) {
     return true;
   }
   const next = path[0];
-  move(actor, next.x - actor.x, next.y - actor.y, dt, speed, blocked);
+  move(actor, next.x - actor.x, next.y - actor.y, dt, speed, blocked, walkable);
   return false;
 }
 export const chairs = desks.map((d) => ({

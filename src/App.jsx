@@ -2,6 +2,8 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import Office from "./Office";
 import ProjectWindow from "./ProjectWindow";
 import PairLobby from "./PairLobby";
+import TheaterRoom from "./TheaterRoom";
+import MovementControls from "./MovementControls";
 import { people } from "./data";
 import "@fontsource/press-start-2p";
 import "@fontsource/dm-sans/400.css";
@@ -74,7 +76,7 @@ function Help({ onClose }) {
         </div>
         <div>
           <kbd>E</kbd>
-          <span>to sit, stand, or talk to someone nearby</span>
+          <span>to sit, stand, talk, or enter a nearby room</span>
         </div>
         <div>
           <span className="help-mouse">↖</span>
@@ -99,8 +101,28 @@ export default function App() {
     [help, setHelp] = useState(false),
     [pairLobby, setPairLobby] = useState(false),
     [pairOnOpen, setPairOnOpen] = useState(false),
+    [room, setRoom] = useState(() =>
+      new URLSearchParams(window.location.search).get("room") === "theater"
+        ? "theater"
+        : "studio",
+    ),
     [nearby, setNearby] = useState(null);
   const office = useRef(null);
+  function enterTheater() {
+    setRoom("theater");
+    setNearby(null);
+    const url = new URL(window.location.href);
+    url.searchParams.set("room", "theater");
+    window.history.replaceState(null, "", url);
+  }
+  function returnToStudio() {
+    office.current?.returnFromTheater();
+    setRoom("studio");
+    setNearby(null);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("room");
+    window.history.replaceState(null, "", url);
+  }
   const closeProject = useCallback(() => {
     setActive(null);
   }, []);
@@ -148,52 +170,68 @@ export default function App() {
           </button>
         </div>
       </header>
-      <main className="main-layout">
+      <main className={`main-layout${room === "theater" ? " in-theater" : ""}`}>
         <section className="world-section">
           <div className="world-heading">
             <div>
-              <span className="room-title">The studio</span>
+              <span className="room-title">
+                {room === "theater" ? "The screening room" : "The studio"}
+              </span>
               <span className="room-description">
-                Good company. Great little projects.
+                {room === "theater"
+                  ? "A shared screen. A softer pace."
+                  : "Good company. Great little projects."}
               </span>
             </div>
             <span className="room-number">
-              ROOM 001 <i />
+              ROOM {room === "theater" ? "002" : "001"} <i />
             </span>
           </div>
-          <div className="map-frame">
-            <Office
-              ref={office}
-              paused={Boolean(active || help || pairLobby)}
-              onVisit={openWorkspace}
-              onChat={openWorkspace}
-              onNearby={setNearby}
-            />
-          </div>
-          <div className="world-bottom">
-            <span>
-              <i className="green-dot" />{" "}
-              {nearby
-                ? nearby.kind === "stand"
-                  ? "Settled in. Make something good."
-                  : `Nearby: ${nearby.name}`
-                : "You’re free to roam. Follow your curiosity."}
-            </span>
-            {nearby ? (
-              <div className="nearby-actions">
-                {nearby.kind === "stand" && (
-                  <button onClick={() => office.current?.visitSeatedProject()}>
-                    Open computer ↗
-                  </button>
+          <div className="studio-view" hidden={room !== "studio"}>
+            <div className="map-frame">
+              <Office
+                ref={office}
+                paused={Boolean(
+                  active || help || pairLobby || room !== "studio",
                 )}
-                <button onClick={() => office.current?.interact()}>
-                  <kbd>E</kbd> {nearby.label}
-                </button>
-              </div>
-            ) : (
-              <span className="coordinate">COZY LEVEL: 100%</span>
-            )}
+                onEnterTheater={enterTheater}
+                onVisit={openWorkspace}
+                onChat={openWorkspace}
+                onNearby={setNearby}
+              />
+            </div>
+            <div className="world-bottom">
+              <span>
+                <i className="green-dot" />{" "}
+                {nearby
+                  ? nearby.kind === "stand"
+                    ? "Settled in. Make something good."
+                    : `Nearby: ${nearby.name}`
+                  : "You’re free to roam. Follow your curiosity."}
+              </span>
+              {nearby ? (
+                <div className="nearby-actions">
+                  {nearby.kind === "stand" && (
+                    <button
+                      onClick={() => office.current?.visitSeatedProject()}
+                    >
+                      Open computer ↗
+                    </button>
+                  )}
+                  <button onClick={() => office.current?.interact()}>
+                    <kbd>E</kbd> {nearby.label}
+                  </button>
+                </div>
+              ) : (
+                <span className="coordinate">COZY LEVEL: 100%</span>
+              )}
+            </div>
           </div>
+          <TheaterRoom
+            visible={room === "theater"}
+            paused={Boolean(active || help || pairLobby)}
+            onExit={returnToStudio}
+          />
         </section>
       </main>
       <footer className="controls-bar">
@@ -225,31 +263,7 @@ export default function App() {
           Built for a little serendipity. <span>✦</span>
         </span>
       </footer>
-      <div className="mobile-dpad" aria-label="Movement controls">
-        {[
-          ["↑", "ArrowUp"],
-          ["←", "ArrowLeft"],
-          ["↓", "ArrowDown"],
-          ["→", "ArrowRight"],
-        ].map(([label, key]) => (
-          <button
-            key={key}
-            aria-label={`Move ${key.slice(5).toLowerCase()}`}
-            onPointerDown={(e) => {
-              e.currentTarget.setPointerCapture(e.pointerId);
-              window.dispatchEvent(new KeyboardEvent("keydown", { key }));
-            }}
-            onPointerUp={() =>
-              window.dispatchEvent(new KeyboardEvent("keyup", { key }))
-            }
-            onPointerCancel={() =>
-              window.dispatchEvent(new KeyboardEvent("keyup", { key }))
-            }
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      {room === "studio" && <MovementControls />}
       {active && (
         <ProjectWindow
           key={active.id}
