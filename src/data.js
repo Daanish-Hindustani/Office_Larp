@@ -1,0 +1,87 @@
+export const people = [
+  {
+    id: "milo",
+    name: "Milo",
+    role: "Making the internet a little greener",
+    project: "Little Garden",
+    color: "#bdadf0",
+    sprite: 1,
+    x: 21.5,
+    y: 43,
+    deskY: 33,
+    quote: "One more little tweak…",
+    hello: "Hey! I’m building a tiny garden. Click the seed and watch it grow.",
+    kind: "garden",
+  },
+  {
+    id: "leo",
+    name: "Leo",
+    role: "Finding the perfect focus playlist",
+    project: "Lo-fi Radio",
+    color: "#edac86",
+    sprite: 2,
+    x: 47.2,
+    y: 43,
+    deskY: 33,
+    quote: "This beat is a keeper.",
+    hello:
+      "Welcome to my corner! This is a little lo-fi player for late-night building.",
+    kind: "radio",
+  },
+  {
+    id: "jun",
+    name: "Jun",
+    role: "One task at a time",
+    project: "Small Wins",
+    color: "#a9c99b",
+    sprite: 3,
+    x: 21.5,
+    y: 63,
+    deskY: 53,
+    quote: "Shipped is better than perfect.",
+    hello: "I’m making a calmer to-do list. Add a task or check one off!",
+    kind: "tasks",
+  },
+  {
+    id: "ada",
+    name: "Ada",
+    role: "Collecting little moments",
+    project: "Postcards",
+    color: "#9ec9e0",
+    sprite: 4,
+    x: 47.2,
+    y: 63,
+    deskY: 53,
+    quote: "Wish you were here ☀",
+    hello:
+      "I’m building a digital postcard collection. There’s always somewhere new to go.",
+    kind: "postcards",
+  },
+];
+export const desks = [
+  ...people,
+  {
+    id: "you",
+    name: "Your desk",
+    project: "Your next big idea",
+    x: 21.5,
+    y: 83,
+    deskY: 73,
+    color: "#e8c581",
+    sprite: 0,
+  },
+  {
+    id: "empty",
+    name: "Open desk",
+    project: "Something good starts here",
+    x: 47.2,
+    y: 83,
+    deskY: 73,
+    color: "#9eaca9",
+    sprite: 0,
+  },
+];
+export function projectHTML(person, accent = "#b5c98b") {
+  const title = person.project;
+  return `<!doctype html>\n<html>\n<head>\n  <style>\n    body {\n      background: #f4f0e6;\n      color: #344137;\n      font-family: monospace;\n      text-align: center;\n      padding: 48px 20px;\n    }\n    button {\n      background: ${accent};\n      border: 2px solid #344137;\n      padding: 14px 24px;\n      cursor: pointer;\n      font: inherit;\n      box-shadow: 4px 4px #344137;\n    }\n  </style>\n</head>\n<body>\n  <p>A LITTLE SIDE PROJECT</p>\n  <h1>${title}</h1>\n  <p>Something small. Something good.</p>\n  <button onclick="this.textContent='You made my day! 🌱'">Say hello ↗</button>\n</body>\n</html>`;
+}
