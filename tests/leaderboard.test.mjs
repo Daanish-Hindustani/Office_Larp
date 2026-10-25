@@ -1,3 +1,8 @@
+import {
+  signedInPage,
+  signedInContext,
+  authenticatedFetch,
+} from "./auth-helpers.mjs";
 import { before, after, test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -21,6 +26,7 @@ before(async () => {
       stdio: "pipe",
       env: {
         ...process.env,
+        OFFICE_DB: `test-results/accounts-${process.pid}-${new URL(url).port}.sqlite`,
         OFFICE_ACTIVITY_FILE: `test-results/leaderboard-activity-${process.pid}.json`,
       },
     },
@@ -45,7 +51,8 @@ after(async () => {
   await browser?.close();
   server?.kill();
 });
-const board = () => fetch(`${url}/api/activity/board`).then((r) => r.json());
+const board = () =>
+  authenticatedFetch(url, "/api/activity/board").then((r) => r.json());
 async function eventually(check) {
   for (let i = 0; i < 50; i++) {
     if (await check()) return;
@@ -64,13 +71,16 @@ async function startPair(page, name) {
 }
 
 test("real sessions record two distinct teams, exclude pauses, and survive a reload/name change", async () => {
-  const page = await browser.newPage({
+  const page = await signedInPage(browser, url, {
     viewport: { width: 1440, height: 1000 },
   });
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   try {
     await page.goto(url);
+    await page
+      .locator('[data-testid="connection-status"][data-connected="true"]')
+      .waitFor({ state: "attached" });
     const profile = await page.evaluate(() =>
       JSON.parse(localStorage.getItem("office-hours:activity-profile:v1")),
     );
@@ -166,7 +176,7 @@ test("real sessions record two distinct teams, exclude pauses, and survive a rel
 });
 
 test("mobile board fits the studio, traps focus, and names sync to another tab", async () => {
-  const context = await browser.newContext({
+  const context = await signedInContext(browser, url, {
     viewport: { width: 390, height: 844 },
   });
   const page = await context.newPage();
@@ -174,7 +184,7 @@ test("mobile board fits the studio, traps focus, and names sync to another tab",
     await page.goto(`${url}/?room=leetcode`);
     await page.getByRole("button", { name: "Open studio leaderboard" }).click();
     await page
-      .getByText("Your identity stays with this browser.", { exact: false })
+      .getByText("Your identity stays with your account.", { exact: false })
       .waitFor();
     await page.keyboard.press("Shift+Tab");
     assert.equal(
@@ -227,8 +237,8 @@ test("mobile board fits the studio, traps focus, and names sync to another tab",
   }
 });
 
-test("connection failure is recoverable and blocked storage uses an explicit temporary identity", async () => {
-  const page = await browser.newPage();
+test("connection failure is recoverable and accounts work with blocked local storage", async () => {
+  const page = await signedInPage(browser, url);
   try {
     await page.addInitScript(() => {
       Storage.prototype.getItem = () => {
@@ -247,7 +257,9 @@ test("connection failure is recoverable and blocked storage uses an explicit tem
     );
     await page.goto(url);
     await page.getByRole("button", { name: "Open studio leaderboard" }).click();
-    await page.getByText("Temporary profile", { exact: false }).waitFor();
+    await page
+      .getByText("Your identity stays with your account.", { exact: false })
+      .waitFor();
     await page
       .getByRole("button", { name: "Try again", exact: false })
       .waitFor();

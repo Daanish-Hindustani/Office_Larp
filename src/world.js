@@ -273,7 +273,7 @@ export function makeNpc(person, index) {
     seat: chairs[index],
   };
 }
-export function updateNpc(npc, dt, player, others) {
+export function updateNpc(npc, dt, player, others, seatReserved = false) {
   npc.elapsed += dt;
   const enter = (state) => {
     npc.state = state;
@@ -317,7 +317,11 @@ export function updateNpc(npc, dt, player, others) {
     if (followPath(npc, npc.path, dt, 12, blocked)) enter("waiting");
   } else if (npc.state === "waiting") {
     npc.direction = "up";
-    if (player.seatId !== npc.seat.id && distance(player, npc.seat) > 3.2)
+    if (
+      !seatReserved &&
+      player.seatId !== npc.seat.id &&
+      distance(player, npc.seat) > 3.2
+    )
       enter("approaching");
   } else if (npc.state === "approaching") {
     if (distance(npc, npc.seat.grip) < 0.2) beginChairPull(npc, npc.seat);

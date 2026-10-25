@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Avatar } from "./Office";
 
-function reply(person, text) {
+export function coworkerReply(person, text) {
   const message = text.toLowerCase();
   if (/project|building|working|making/.test(message))
-    return `${person.hello} You can explore the code and preview right beside our chat.`;
+    return `${person.hello} Ask me about the project or take a look at my computer.`;
   if (/advice|tip|help|hackathon/.test(message))
     return "Get one tiny thing working first. Then make it feel good. You can always add the fancy stuff later!";
   if (/hello|hey|hi\b/.test(message))
@@ -46,9 +46,9 @@ export default function ChatWindow({ person, onReply, autoFocus = true }) {
     setDraft("");
     setTyping(true);
     timer.current = setTimeout(() => {
-      const response = reply(person, value);
+      const response = coworkerReply(person, value);
       setMessages((m) => [...m, { who: "npc", text: response }]);
-      onReply(response);
+      onReply?.(response);
       setTyping(false);
       if (input.current?.getClientRects().length) input.current.focus();
     }, 650);

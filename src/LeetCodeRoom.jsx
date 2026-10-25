@@ -1,3 +1,8 @@
+import {
+  RemotePlayers,
+  usePublishActor,
+  useSeatReservation,
+} from "./Multiplayer";
 import { useCallback, useEffect, useRef, useState } from "react";
 import CharacterSprite from "./PlayerSprite";
 import MovementControls from "./MovementControls";
@@ -16,6 +21,7 @@ export default function LeetCodeRoom({ visible, paused, onExit }) {
     state: "standing",
     frame: 0,
   });
+  usePublishActor("leetcode", actor, visible);
   const playerElement = useRef(null),
     art = useRef(null),
     map = useRef(null),
@@ -27,19 +33,27 @@ export default function LeetCodeRoom({ visible, paused, onExit }) {
   const [nearby, setNearby] = useState(null),
     [seated, setSeated] = useState(null),
     [workspace, setWorkspace] = useState(null),
-    [pendingSlug, setPendingSlug] = useState(null);
-  const [difficulty, setDifficulty] = useState("All"),
-    [search, setSearch] = useState("");
-  const [mobilePanel, setMobilePanel] = useState("room");
+    [boardOpen, setBoardOpen] = useState(false);
+  const seat = useSeatReservation("leetcode", visible, () => {
+    setWorkspace(null);
+    stand();
+  });
+  const boardDialog = useRef(null);
+  useEffect(() => {
+    const dialog = boardDialog.current;
+    if (boardOpen && visible) dialog?.showModal();
+    else dialog?.close();
+  }, [boardOpen, visible]);
   const closeWorkspace = useCallback(() => {
     setWorkspace(null);
     requestAnimationFrame(() => map.current?.focus({ preventScroll: true }));
   }, []);
   callbacks.current = {
-    paused: paused || Boolean(workspace),
+    paused: paused || Boolean(workspace) || boardOpen,
     onExit,
     visible,
     openComputer,
+    seat,
   };
   function stand() {
     const player = actor.current;
@@ -49,15 +63,15 @@ export default function LeetCodeRoom({ visible, paused, onExit }) {
     player.y = station.entry.y;
     player.state = "standing";
     player.stationId = null;
+    void seat.release();
     setSeated(null);
   }
   function openComputer(station) {
-    setWorkspace({ station, slug: pendingSlug || station.slug });
-    setPendingSlug(null);
+    setWorkspace({ station, slug: station.slug });
     keys.current.clear();
     route.current = [];
   }
-  function interact() {
+  async function interact() {
     if (
       callbacks.current.paused ||
       !callbacks.current.visible ||
@@ -75,6 +89,17 @@ export default function LeetCodeRoom({ visible, paused, onExit }) {
       );
       return;
     }
+    if (actor.current.state !== "standing") return;
+    if (!(await callbacks.current.seat.claim(choice.id))) return;
+    if (
+      callbacks.current.paused ||
+      !callbacks.current.visible ||
+      actor.current.state !== "standing" ||
+      distance(actor.current, choice.entry) > 7
+    ) {
+      void callbacks.current.seat.release();
+      return;
+    }
     const player = actor.current;
     player.state = "sitting";
     player.x = choice.x;
@@ -86,6 +111,7 @@ export default function LeetCodeRoom({ visible, paused, onExit }) {
     route.current = [];
     keys.current.clear();
     map.current?.focus({ preventScroll: true });
+    openComputer(labStations.find((station) => station.id === choice.id));
   }
   function walkTo(point, stationId = null) {
     if (callbacks.current.paused) return;
@@ -122,11 +148,11 @@ export default function LeetCodeRoom({ visible, paused, onExit }) {
     map.current?.focus({ preventScroll: true });
   }, [visible]);
   useEffect(() => {
-    if (paused || workspace) {
+    if (paused || workspace || boardOpen) {
       route.current = [];
       keys.current.clear();
     }
-  }, [paused, workspace]);
+  }, [paused, workspace, boardOpen]);
   useEffect(() => {
     if (!visible) return;
     function down(event) {
@@ -206,12 +232,16 @@ export default function LeetCodeRoom({ visible, paused, onExit }) {
         player.state === "sitting"
           ? [{ kind: "computer", id: player.stationId, label: "Open computer" }]
           : [
-              ...labStations.map((station) => ({
-                ...station,
-                kind: "seat",
-                label: `Sit at desk ${station.id}`,
-                dist: distance(player, station.entry),
-              })),
+              ...labStations
+                .filter(
+                  (station) => !callbacks.current.seat.occupant(station.id),
+                )
+                .map((station) => ({
+                  ...station,
+                  kind: "seat",
+                  label: `Sit at desk ${station.id}`,
+                  dist: distance(player, station.entry),
+                })),
               {
                 ...labExit,
                 kind: "exit",
@@ -245,30 +275,9 @@ export default function LeetCodeRoom({ visible, paused, onExit }) {
       keys.current.clear();
     };
   }, [visible]);
-  const filtered = (room.catalog?.problems || []).filter(
-    (problem) =>
-      (difficulty === "All" || problem.difficulty === difficulty) &&
-      `${problem.title} ${problem.tags.join(" ")}`
-        .toLowerCase()
-        .includes(search.toLowerCase()),
-  );
   return (
     <div className="leetcode-room" hidden={!visible}>
-      <div className="lab-mobile-switch" aria-label="Algorithm room view">
-        <button
-          aria-pressed={mobilePanel === "room"}
-          onClick={() => setMobilePanel("room")}
-        >
-          ⌘ Room & problems
-        </button>
-        <button
-          aria-pressed={mobilePanel === "board"}
-          onClick={() => setMobilePanel("board")}
-        >
-          ◇ Leaderboard
-        </button>
-      </div>
-      <div className="lab-layout" data-mobile-panel={mobilePanel}>
+      <div className="lab-layout">
         <div className="lab-world">
           <div className="map-frame lab-frame">
             <div
@@ -290,7 +299,14 @@ export default function LeetCodeRoom({ visible, paused, onExit }) {
                 alt="Warm pixel-art algorithm room with four computers, teal chairs, plants and a leaderboard chalkboard"
                 draggable="false"
               />
-              <div className="lab-chalkboard">
+              <button
+                className="lab-chalkboard"
+                aria-label="Open LeetCode leaderboard"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setBoardOpen(true);
+                }}
+              >
                 <span>THE PRACTICE CLUB</span>
                 {room.profiles.length ? (
                   room.profiles.slice(0, 3).map((profile) => (
@@ -306,7 +322,7 @@ export default function LeetCodeRoom({ visible, paused, onExit }) {
                     <br />A little shared progress.
                   </p>
                 )}
-              </div>
+              </button>
               <button
                 className="lab-exit"
                 aria-label="Walk back to the studio from the algorithm room"
@@ -317,11 +333,18 @@ export default function LeetCodeRoom({ visible, paused, onExit }) {
               >
                 ↑ STUDIO
               </button>
+              <RemotePlayers room="leetcode" />
               {labStations.map((station) => (
                 <button
                   key={station.id}
                   className={`lab-station${seated === station.id ? " is-seated" : ""}`}
                   style={{ left: `${station.x}%`, top: `${station.y - 8}%` }}
+                  disabled={Boolean(seat.occupant(station.id))}
+                  title={
+                    seat.occupant(station.id)
+                      ? `Occupied by ${seat.occupant(station.id).name}`
+                      : undefined
+                  }
                   aria-label={`Approach coding desk ${station.id}`}
                   onClick={(event) => {
                     event.stopPropagation();
@@ -330,7 +353,11 @@ export default function LeetCodeRoom({ visible, paused, onExit }) {
                 >
                   <span>
                     DESK {station.id}
-                    <small>{station.label}</small>
+                    <small>
+                      {seat.occupant(station.id)
+                        ? `Occupied · ${seat.occupant(station.id).name}`
+                        : station.label}
+                    </small>
                   </span>
                 </button>
               ))}
@@ -363,9 +390,7 @@ export default function LeetCodeRoom({ visible, paused, onExit }) {
               <span className="green-dot" />
               {seated
                 ? `Desk ${seated}. One small step at a time.`
-                : pendingSlug
-                  ? "Your problem is ready. Take a seat at a computer."
-                  : "Pull up a chair. Let’s work through something."}
+                : "Pull up a chair. Let’s work through something."}
             </div>
             <div className="lab-room-actions">
               {seated && (
@@ -389,133 +414,30 @@ export default function LeetCodeRoom({ visible, paused, onExit }) {
               )}
             </div>
           </div>
-          <section className="lab-shelf" aria-labelledby="lab-shelf-title">
-            <div className="lab-section-heading">
-              <div>
-                <span className="lab-eyebrow">
-                  A LITTLE PRACTICE, EVERY DAY
-                </span>
-                <h2 id="lab-shelf-title">The problem shelf</h2>
-              </div>
-              <span className="lab-source-tag">FROM LEETCODE</span>
-            </div>
-            <p>
-              Pick something to work on, then settle into a computer. Statements
-              and starter code come straight from LeetCode.
-            </p>
-            <div className="lab-shelf-filters">
-              <input
-                aria-label="Search LeetCode problems"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Find a problem or topic…"
-              />
-              <select
-                aria-label="Filter problem difficulty"
-                value={difficulty}
-                onChange={(event) => setDifficulty(event.target.value)}
-              >
-                <option>All</option>
-                <option>Easy</option>
-                <option>Medium</option>
-              </select>
-            </div>
-            {room.catalogLoading && (
-              <p className="lab-loading" role="status">
-                Pulling the practice shelf from LeetCode…
-              </p>
-            )}
-            {room.catalogError && (
-              <div className="lab-notice" role="alert">
-                <p>{room.catalogError}</p>
-                <button onClick={room.loadCatalog}>Try again ↗</button>
-                <a
-                  href="https://leetcode.com/problemset/"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Open LeetCode ↗
-                </a>
-              </div>
-            )}
-            {room.catalog && !filtered.length && (
-              <p className="lab-fine-print">
-                No problems match. Try another topic or difficulty.
-              </p>
-            )}
-            <div className="lab-problem-grid">
-              {filtered.map((problem) => (
-                <button
-                  key={problem.slug}
-                  className="lab-problem-card"
-                  onClick={() => {
-                    setPendingSlug(problem.slug);
-                    if (seated) {
-                      setWorkspace({
-                        station: labStations.find(
-                          (station) => station.id === seated,
-                        ),
-                        slug: problem.slug,
-                      });
-                      setPendingSlug(null);
-                    } else walkTo(labStations[0].entry, labStations[0].id);
-                  }}
-                >
-                  <span
-                    className={`lab-difficulty difficulty-${problem.difficulty.toLowerCase()}`}
-                  >
-                    {problem.difficulty}
-                  </span>
-                  <strong>
-                    <small>{problem.id}.</small> {problem.title}
-                  </strong>
-                  <span>{problem.focus}</span>
-                  <small>
-                    {seated
-                      ? "Open at your desk ↗"
-                      : "Take this to a computer ↗"}
-                  </small>
-                </button>
-              ))}
-            </div>
-          </section>
         </div>
-        <aside className="lab-sidebar">
-          <header className="lab-sidebar-heading">
-            <span className="lab-eyebrow">GOOD COMPANY. STEADY PROGRESS.</span>
-            <h1>
-              The practice club<span>◇</span>
-            </h1>
-            <p>A little focus. A little friendly competition.</p>
-          </header>
-          <div className="lab-sidebar-content">
-            <LeetCodeBoard room={room} />
-            <section className="lab-how-it-works">
-              <h2>From chair to Accepted.</h2>
-              <p>
-                <b>01</b> Sit at a computer. Pick a real problem.
-              </p>
-              <p>
-                <b>02</b> Work it out. Run the practice cases.
-              </p>
-              <p>
-                <b>03</b> Submit on LeetCode. Check Accepted here.
-              </p>
-              <a
-                href="https://leetcode.com/problemset/"
-                target="_blank"
-                rel="noreferrer"
-              >
-                Visit LeetCode ↗
-              </a>
-            </section>
-          </div>
-          <footer className="lab-sidebar-footer">
-            <button onClick={onExit}>← Back to studio</button>
-            <span>Independent study room · not affiliated with LeetCode</span>
-          </footer>
-        </aside>
       </div>
+      <dialog
+        ref={boardDialog}
+        className="lab-board-dialog"
+        aria-labelledby="leetcode-board-title"
+        onClose={() => setBoardOpen(false)}
+        onClick={(event) => {
+          if (event.target === event.currentTarget) event.currentTarget.close();
+        }}
+      >
+        {boardOpen && (
+          <>
+            <button
+              className="chrome-button lab-board-close"
+              autoFocus
+              onClick={() => boardDialog.current?.close()}
+            >
+              Close leaderboard
+            </button>
+            <LeetCodeBoard room={room} />
+          </>
+        )}
+      </dialog>
       {workspace && (
         <LeetCodeWorkspace
           station={workspace.station}

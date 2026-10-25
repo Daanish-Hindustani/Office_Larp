@@ -34,6 +34,7 @@ export default function Leaderboard({
     [metric, setMetric] = useState("online"),
     [expanded, setExpanded] = useState(null),
     [name, setName] = useState(profile.name),
+    [nameError, setNameError] = useState(""),
     [editing, setEditing] = useState(false);
   const dialog = useRef(null);
   useEffect(() => {
@@ -372,11 +373,15 @@ export default function Leaderboard({
               <span className="pair-eyebrow">YOUR STUDIO NAME</span>
               {editing ? (
                 <form
-                  onSubmit={(e) => {
+                  onSubmit={async (e) => {
                     e.preventDefault();
-                    if (name.trim()) {
-                      activity.rename(name);
+                    if (!name.trim()) return;
+                    try {
+                      await activity.rename(name);
                       setEditing(false);
+                      setNameError("");
+                    } catch (error) {
+                      setNameError(error.message);
                     }
                   }}
                 >
@@ -413,10 +418,11 @@ export default function Leaderboard({
                   </button>
                 </>
               )}
+              {nameError && <p role="alert">{nameError}</p>}
               <small>
                 {temporary
                   ? "Temporary profile · browser storage is unavailable."
-                  : "Your identity stays with this browser. Names can change; your time stays yours."}
+                  : "Your identity stays with your account. Names can change; your time stays yours."}
               </small>
             </div>
             <div className="standings-rules">
@@ -444,7 +450,7 @@ export default function Leaderboard({
         <footer className="standings-footer">
           <span>✦ Shared on this studio server · saved between visits.</span>
           <small>
-            Visitor profiles are browser-based. Coworkers are simulated; their
+            Profiles belong to signed-in accounts. Coworkers are NPCs; their
             online presence isn’t ranked.
           </small>
         </footer>

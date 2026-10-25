@@ -1,5 +1,6 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
+import Multiplayer from "./Multiplayer";
 import App from "./App.jsx";
 import "./style.css";
 import "./pairing.css";
@@ -8,6 +9,8 @@ import "./leetcode.css";
 import "./leaderboard.css";
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <App />
+    <Multiplayer>
+      <App />
+    </Multiplayer>
   </React.StrictMode>,
 );

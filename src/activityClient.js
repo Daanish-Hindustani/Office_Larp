@@ -86,6 +86,13 @@ async function send({
 }
 
 export const activity = {
+  setAccount(user) {
+    const profile = { id: user.id, name: user.name };
+    try {
+      localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+    } catch {}
+    notify({ profile, temporary: false });
+  },
   subscribe(listener) {
     listeners.add(listener);
     return () => listeners.delete(listener);
@@ -135,17 +142,19 @@ export const activity = {
     };
   },
   refresh: () => send(),
-  rename(name) {
-    const trimmed = name.trim().replace(/\s+/g, " ").slice(0, 24);
-    if (!trimmed) return;
-    const profile = { ...state.profile, name: trimmed };
-    let temporary = false;
-    try {
-      localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
-    } catch {
-      temporary = true;
-    }
-    notify({ profile, temporary });
+  async rename(name) {
+    const response = await fetch("/api/auth/profile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    const result = await response.json();
+    if (!response.ok)
+      throw new Error(result.error || "Could not update your name.");
+    activity.setAccount(result.user);
+    window.dispatchEvent(
+      new CustomEvent("office:account", { detail: result.user }),
+    );
     void send();
   },
   beginPair(person, goal) {

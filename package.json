@@ -21,5 +21,8 @@
     "@vitejs/plugin-react": "latest",
     "playwright": "latest",
     "vite": "latest"
+  },
+  "engines": {
+    "node": ">=22.13.0"
   }
 }

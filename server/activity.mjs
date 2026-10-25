@@ -60,6 +60,7 @@ export function activityMiddleware({
         respond(400, { error: "That activity update is invalid." });
         return;
       }
+      if (req.officeUser) input.person = req.officeUser;
       const store = await load();
       store.heartbeat(input, now());
       await mkdir(dirname(file), { recursive: true });

@@ -1,3 +1,5 @@
+import { createPortal } from "react-dom";
+import { RemotePlayers, usePublishActor } from "./Multiplayer";
 import {
   forwardRef,
   useEffect,
@@ -12,8 +14,7 @@ import { canWalkTheater, theaterExit, theaterSeats } from "./theaterWorld";
 import {
   useWatchParty,
   playbackPosition,
-  ambientFilms,
-  reactions,
+  demoFilm,
   clockTime,
 } from "./watchParty";
 
@@ -71,6 +72,30 @@ function SeatedGuest({ seat }) {
   );
 }
 
+function ScreeningScreen({ title, onClose, children }) {
+  const dialog = useRef(null);
+  useEffect(() => {
+    dialog.current?.showModal();
+  }, []);
+  return createPortal(
+    <dialog
+      ref={dialog}
+      className="theater-screen-dialog"
+      aria-label="Theater screening"
+      onClose={onClose}
+    >
+      <header>
+        <h2>{title}</h2>
+        <button autoFocus onClick={() => dialog.current?.close()}>
+          ✕ Back to room
+        </button>
+      </header>
+      {children}
+    </dialog>,
+    document.body,
+  );
+}
+
 const TheaterRoom = forwardRef(function TheaterRoom(
   { visible, paused, onExit },
   ref,
@@ -84,30 +109,28 @@ const TheaterRoom = forwardRef(function TheaterRoom(
     frame: 0,
     elapsed: 0,
   });
+  usePublishActor("theater", player, visible);
   const playerElement = useRef(null),
     sprite = useRef(null),
     map = useRef(null),
     route = useRef([]),
     keys = useRef(new Set()),
     selected = useRef(null),
-    nearest = useRef(null);
+    nearest = useRef(null),
+    resumeWalk = useRef(null);
   const callbacks = useRef({});
   callbacks.current = { paused, onExit, visible };
   const [nearby, setNearby] = useState(null);
   const [selectedSeat, setSelectedSeat] = useState(null);
-  const [notice, setNotice] = useState("");
   const [mediaError, setMediaError] = useState("");
   const [needsGesture, setNeedsGesture] = useState(false);
   const [focusScreen, setFocusScreen] = useState(false);
   callbacks.current.focusScreen = focusScreen;
   const [muted, setMuted] = useState(true);
   const [duration, setDuration] = useState(null);
-  const [draft, setDraft] = useState("");
-  const [videoURL, setVideoURL] = useState(""),
-    [videoTitle, setVideoTitle] = useState("");
-  const [showVideoForm, setShowVideoForm] = useState(false);
-  const video = useRef(null),
-    chatLog = useRef(null);
+  const [seekPosition, setSeekPosition] = useState(null);
+  const seekSequence = useRef(0);
+  const video = useRef(null);
   const lastMediaCommand = useRef("");
   const currentParty = useRef(party);
   currentParty.current = party;
@@ -116,19 +139,39 @@ const TheaterRoom = forwardRef(function TheaterRoom(
     party.state.source.kind === "ambient"
       ? party.state.source.duration
       : duration;
-  const roomLink = new URL(window.location.href);
-  roomLink.searchParams.set("room", "theater");
 
   function stand() {
     const actor = player.current;
     if (actor.state !== "sitting") return;
-    const seat = theaterSeats.find((item) => item.id === actor.seatId);
-    actor.x = seat.x;
-    actor.y = seat.entryY;
-    actor.state = "standing";
-    actor.seatId = null;
-    setSelectedSeat(null);
+    actor.state = "standing-up";
+    actor.elapsed = 0;
+    actor.moving = false;
   }
+  async function watchDemo() {
+    setMediaError("");
+    setNeedsGesture(false);
+    const actor = player.current;
+    const seatId = actor.seatId;
+    const current = currentParty.current.state;
+    const change =
+      current.source.url === demoFilm.url
+        ? {
+            playing: true,
+            ...(playbackPosition(current) >= demoFilm.duration
+              ? { position: 0 }
+              : {}),
+          }
+        : { source: demoFilm, position: 0, playing: true };
+    const state = await currentParty.current.publish(change);
+    if (
+      state?.source.url === demoFilm.url &&
+      callbacks.current.visible &&
+      actor.state === "sitting" &&
+      actor.seatId === seatId
+    )
+      setFocusScreen(true);
+  }
+  callbacks.current.watchDemo = watchDemo;
   function exit() {
     if (currentParty.current.count === 1)
       currentParty.current.publish({ playing: false });
@@ -152,20 +195,25 @@ const TheaterRoom = forwardRef(function TheaterRoom(
       return;
     }
     const actor = player.current;
-    actor.x = choice.x;
-    actor.y = choice.y;
-    actor.state = "sitting";
+    if (actor.state !== "standing") return;
+    actor.seatStart = { x: actor.x, y: actor.y };
+    actor.elapsed = 0;
+    actor.state = "settling-in";
     actor.seatId = choice.id;
     actor.direction = "up";
     actor.moving = false;
     route.current = [];
     keys.current.clear();
-    setSelectedSeat(choice.id);
     map.current?.focus({ preventScroll: true });
   }
   function walkTo(point, seatId = null) {
     if (!active || focusScreen) return;
-    stand();
+    if (player.current.state === "sitting") {
+      resumeWalk.current = { point, seatId };
+      stand();
+      return;
+    }
+    if (player.current.state !== "standing") return;
     selected.current = seatId;
     route.current = pathTo(player.current, point, canWalkTheater);
     map.current?.focus({ preventScroll: true });
@@ -185,6 +233,7 @@ const TheaterRoom = forwardRef(function TheaterRoom(
     player.current.seatId = null;
     player.current.direction = "down";
     setSelectedSeat(null);
+    resumeWalk.current = null;
     setFocusScreen(false);
     route.current = [];
     selected.current = null;
@@ -242,6 +291,55 @@ const TheaterRoom = forwardRef(function TheaterRoom(
       const dt = Math.min((time - last) / 1000 || 0, 0.04);
       last = time;
       const actor = player.current;
+      if (!callbacks.current.paused && !callbacks.current.focusScreen) {
+        actor.elapsed += dt;
+        const seat = theaterSeats.find((item) => item.id === actor.seatId);
+        const progress = (duration) => Math.min(1, actor.elapsed / duration);
+        const ease = (value) => value * value * (3 - 2 * value);
+        if (actor.state === "settling-in") {
+          const p = ease(progress(0.35));
+          actor.x = actor.seatStart.x + (seat.x - actor.seatStart.x) * p;
+          actor.y = actor.seatStart.y + (seat.y - 2 - actor.seatStart.y) * p;
+          actor.frame = Math.floor(actor.elapsed * 9) % 4;
+          actor.moving = true;
+          if (p === 1) {
+            actor.state = "sitting-down";
+            actor.elapsed = 0;
+          }
+        } else if (actor.state === "sitting-down") {
+          actor.y = seat.y - 2 + 2 * ease(progress(0.42));
+          actor.frame = Math.min(5, Math.floor(progress(0.42) * 6));
+          if (progress(0.42) === 1) {
+            actor.state = "sitting";
+            actor.y = seat.y;
+            actor.elapsed = 0;
+            setSelectedSeat(seat.id);
+            void callbacks.current.watchDemo();
+          }
+        } else if (actor.state === "standing-up") {
+          actor.y = seat.y - 2 * ease(progress(0.36));
+          actor.frame = Math.max(0, 5 - Math.floor(progress(0.36) * 6));
+          if (progress(0.36) === 1) {
+            actor.state = "leaving-seat";
+            actor.elapsed = 0;
+          }
+        } else if (actor.state === "leaving-seat") {
+          const p = ease(progress(0.3));
+          actor.y = seat.y - 2 + (seat.entryY - (seat.y - 2)) * p;
+          actor.frame = Math.floor(actor.elapsed * 9) % 4;
+          if (p === 1) {
+            actor.state = "standing";
+            actor.seatId = null;
+            setSelectedSeat(null);
+            if (resumeWalk.current) {
+              const next = resumeWalk.current;
+              resumeWalk.current = null;
+              selected.current = next.seatId;
+              route.current = pathTo(actor, next.point, canWalkTheater);
+            }
+          }
+        }
+      }
       if (
         !callbacks.current.paused &&
         !callbacks.current.focusScreen &&
@@ -264,7 +362,8 @@ const TheaterRoom = forwardRef(function TheaterRoom(
         }
       } else {
         actor.moving = false;
-        keys.current.clear();
+        if (callbacks.current.paused || callbacks.current.focusScreen)
+          keys.current.clear();
       }
       const element = playerElement.current;
       if (element) {
@@ -275,33 +374,37 @@ const TheaterRoom = forwardRef(function TheaterRoom(
         sprite.current?.setPose(
           actor.direction,
           actor.state === "sitting" ? 5 : actor.frame,
-          actor.state === "sitting" ? "sit" : "walk",
+          ["sitting", "sitting-down", "standing-up"].includes(actor.state)
+            ? "sit"
+            : "walk",
         );
       }
       const choices =
         actor.state === "sitting"
           ? [{ kind: "stand", id: actor.seatId, label: "Stand up" }]
-          : [
-              ...theaterSeats
-                .filter((seat) => !seat.guest)
-                .map((seat) => ({
-                  ...seat,
-                  kind: "seat",
-                  label: `Take seat ${seat.id}`,
-                  dist: distance(actor, { x: seat.x, y: seat.entryY }),
-                })),
-              {
-                ...theaterExit,
-                kind: "exit",
-                id: "studio",
-                label: "Back to studio",
-                dist: distance(actor, theaterExit),
-              },
-            ]
-              .filter(
-                (choice) => choice.dist < (choice.kind === "exit" ? 10 : 7),
-              )
-              .sort((a, b) => a.dist - b.dist);
+          : actor.state === "standing"
+            ? [
+                ...theaterSeats
+                  .filter((seat) => !seat.guest)
+                  .map((seat) => ({
+                    ...seat,
+                    kind: "seat",
+                    label: `Take seat ${seat.id}`,
+                    dist: distance(actor, { x: seat.x, y: seat.entryY }),
+                  })),
+                {
+                  ...theaterExit,
+                  kind: "exit",
+                  id: "studio",
+                  label: "Back to studio",
+                  dist: distance(actor, theaterExit),
+                },
+              ]
+                .filter(
+                  (choice) => choice.dist < (choice.kind === "exit" ? 10 : 7),
+                )
+                .sort((a, b) => a.dist - b.dist)
+            : [];
       const choice =
         choices.find((item) => item.id === selected.current) ||
         choices[0] ||
@@ -354,14 +457,7 @@ const TheaterRoom = forwardRef(function TheaterRoom(
         .play()
         .then(() => setNeedsGesture(false))
         .catch(() => setNeedsGesture(true));
-  }, [active, party.state, party.position, mediaError]);
-  useEffect(() => {
-    chatLog.current?.scrollTo({
-      top: chatLog.current.scrollHeight,
-      behavior: "smooth",
-    });
-  }, [party.messages]);
-
+  }, [active, party.state, party.position, mediaError, focusScreen]);
   async function togglePlayback() {
     if (
       party.state.source.kind === "url" &&
@@ -371,9 +467,7 @@ const TheaterRoom = forwardRef(function TheaterRoom(
         await video.current.play();
         setNeedsGesture(false);
       } catch {
-        setNotice(
-          "This video couldn’t start. Check the link or choose an ambient screening.",
-        );
+        setMediaError("This video couldn’t start. Return to the room and try Watch demo again.");
         return;
       }
       if (needsGesture && party.state.playing) return;
@@ -382,40 +476,121 @@ const TheaterRoom = forwardRef(function TheaterRoom(
       party.publish({ position: 0, playing: true });
     else party.publish({ playing: !party.state.playing });
   }
-  function addVideo(event) {
-    event.preventDefault();
-    try {
-      const url = new URL(videoURL);
-      if (
-        !["http:", "https:"].includes(url.protocol) ||
-        /(^|\.)(youtube\.com|youtu\.be|vimeo\.com)$/.test(url.hostname)
-      )
-        throw new Error();
-      if (party.state.queue.length >= 12) {
-        setNotice(
-          "The queue is full. Remove a screening before adding another.",
-        );
-        return;
-      }
-      party.addItem({
-        id: crypto.randomUUID(),
-        kind: "url",
-        url: url.href,
-        title: videoTitle.trim() || "A shared screening",
-        subtitle: "Video link",
-      });
-      setVideoURL("");
-      setVideoTitle("");
-      setShowVideoForm(false);
-      setNotice("Added to the queue. Choose Screen this to put it on.");
-    } catch {
-      setNotice(
-        "Use a direct HTTP or HTTPS video link, such as an MP4 or WebM file. YouTube and Vimeo pages can’t play here.",
-      );
-    }
+  function renderProjection() {
+    return (
+      <div
+        className="theater-projection"
+        onClick={(event) => event.stopPropagation()}
+      >
+        {party.state.source.kind === "ambient" ? (
+          <AmbientFilm
+            film={party.state.source}
+            playing={active && party.state.playing}
+            position={party.position}
+          />
+        ) : (
+          <video
+            ref={video}
+            key={party.state.source.id}
+            src={party.state.source.url}
+            muted={muted}
+            playsInline
+            autoPlay={focusScreen && party.state.playing}
+            poster={
+              party.state.source.url === demoFilm.url
+                ? "/media/adialante-poster.jpg"
+                : undefined
+            }
+            preload="metadata"
+            aria-label={party.state.source.title}
+            onLoadedMetadata={(event) => {
+              setDuration(
+                Number.isFinite(event.currentTarget.duration)
+                  ? event.currentTarget.duration
+                  : null,
+              );
+              event.currentTarget.currentTime = Math.min(
+                event.currentTarget.duration || 0,
+                playbackPosition(party.state),
+              );
+            }}
+            onEnded={(event) =>
+              party.publish({
+                playing: false,
+                position: event.currentTarget.currentTime,
+              })
+            }
+            onError={() =>
+              setMediaError(
+                "That video couldn’t load. Check that the link points to a playable video file.",
+              )
+            }
+          />
+        )}
+        {!party.state.playing && (
+          <span className="projection-paused">
+            {party.position > 0 ? "INTERMISSION" : "MAKE YOURSELF AT HOME"}
+          </span>
+        )}
+      </div>
+    );
   }
   return (
     <div className="theater-view" hidden={!visible}>
+      {focusScreen && visible && (
+        <ScreeningScreen
+          title={party.state.source.title}
+          onClose={() => setFocusScreen(false)}
+        >
+          {renderProjection()}
+          {mediaError && <p role="alert">{mediaError}</p>}
+          <div className="theater-screen-controls">
+            <button onClick={togglePlayback} disabled={Boolean(mediaError)}>
+              {needsGesture
+                ? "▶ Join playback"
+                : party.state.playing
+                  ? "Ⅱ Pause for everyone"
+                  : "▶ Play together"}
+            </button>
+            <button
+              onClick={() => party.publish({ position: 0 })}
+              aria-label="Restart screening"
+            >
+              ↺ Restart
+            </button>
+            <span>
+              {clockTime(party.position)} /{" "}
+              {totalDuration ? clockTime(totalDuration) : "--:--"}
+            </span>
+            <button
+              disabled={party.state.source.kind === "ambient"}
+              aria-pressed={!muted}
+              onClick={() => setMuted((value) => !value)}
+            >
+              {muted ? "Sound off" : "Sound on"}
+            </button>
+          </div>
+          <input
+            type="range"
+            className="screening-progress"
+            aria-label="Screening progress"
+            min="0"
+            max={totalDuration || 1}
+            step="1"
+            value={Math.min(seekPosition ?? party.position, totalDuration || 1)}
+            disabled={!totalDuration}
+            onChange={(event) => {
+              const position = Number(event.target.value);
+              const sequence = ++seekSequence.current;
+              setSeekPosition(position);
+              void party.publish({ position }).finally(() => {
+                if (seekSequence.current === sequence) setSeekPosition(null);
+              });
+            }}
+          />
+        </ScreeningScreen>
+      )}
+
       <div className="theater-layout">
         <div className="theater-world">
           <div
@@ -440,65 +615,7 @@ const TheaterRoom = forwardRef(function TheaterRoom(
                 alt="Cozy pixel theater with plum curtains, a projection screen, six sofas and a snack corner"
                 draggable="false"
               />
-              <div
-                className="theater-projection"
-                onClick={(event) => event.stopPropagation()}
-              >
-                {focusScreen && (
-                  <button
-                    className="theater-close-screen"
-                    onClick={() => setFocusScreen(false)}
-                  >
-                    ✕ Back to room
-                  </button>
-                )}
-                {party.state.source.kind === "ambient" ? (
-                  <AmbientFilm
-                    film={party.state.source}
-                    playing={active && party.state.playing}
-                    position={party.position}
-                  />
-                ) : (
-                  <video
-                    ref={video}
-                    key={party.state.source.id}
-                    src={party.state.source.url}
-                    muted={muted}
-                    playsInline
-                    preload="metadata"
-                    aria-label={party.state.source.title}
-                    onLoadedMetadata={(event) => {
-                      setDuration(
-                        Number.isFinite(event.currentTarget.duration)
-                          ? event.currentTarget.duration
-                          : null,
-                      );
-                      event.currentTarget.currentTime = Math.min(
-                        event.currentTarget.duration || 0,
-                        playbackPosition(party.state),
-                      );
-                    }}
-                    onEnded={(event) =>
-                      party.publish({
-                        playing: false,
-                        position: event.currentTarget.currentTime,
-                      })
-                    }
-                    onError={() =>
-                      setMediaError(
-                        "That video couldn’t load. Check that the link points to a playable video file.",
-                      )
-                    }
-                  />
-                )}
-                {!party.state.playing && (
-                  <span className="projection-paused">
-                    {party.position > 0
-                      ? "INTERMISSION"
-                      : "MAKE YOURSELF AT HOME"}
-                  </span>
-                )}
-              </div>
+              {!focusScreen && renderProjection()}
               <button
                 className="theater-exit"
                 disabled={focusScreen}
@@ -535,6 +652,7 @@ const TheaterRoom = forwardRef(function TheaterRoom(
                   </span>
                 </button>
               ))}
+              <RemotePlayers room="theater" />
               {theaterSeats
                 .filter((seat) => seat.guest)
                 .map((seat) => (
@@ -573,318 +691,16 @@ const TheaterRoom = forwardRef(function TheaterRoom(
             </div>
           </div>
           <MovementControls disabled={focusScreen || !active} />
-          <div className="theater-player-controls">
-            {mediaError && (
-              <p className="screening-error" role="alert">
-                {mediaError} Choose another screening from the queue to keep
-                watching.
-              </p>
+          <div className="theater-bottom">
+            <button onClick={exit}>← Back to studio</button>
+            {selectedSeat && <button onClick={watchDemo}>Watch demo</button>}
+            {nearby && !focusScreen && (
+              <button onClick={interact}>
+                <kbd>E</kbd> {nearby.label}
+              </button>
             )}
-            <div className="screening-heading">
-              <span className="green-dot" />
-              <div>
-                <span>ON THE BIG SCREEN</span>
-                <h2>{party.state.source.title}</h2>
-              </div>
-              <span className="theater-source-tag">
-                {party.state.source.kind === "ambient"
-                  ? "AMBIENT LOOP"
-                  : "VIDEO"}
-              </span>
-            </div>
-            <div className="screening-transport">
-              <button
-                className="theater-play"
-                disabled={!active || Boolean(mediaError)}
-                onClick={togglePlayback}
-              >
-                {needsGesture
-                  ? "▶ Join playback"
-                  : party.state.playing
-                    ? "Ⅱ Pause for everyone"
-                    : "▶ Play together"}
-              </button>
-              <button
-                aria-label="Restart screening"
-                title="Restart screening"
-                onClick={() => party.publish({ position: 0 })}
-                disabled={!active}
-              >
-                ↺
-              </button>
-              <button
-                aria-pressed={focusScreen}
-                onClick={() => {
-                  route.current = [];
-                  keys.current.clear();
-                  setFocusScreen((value) => !value);
-                }}
-              >
-                {focusScreen ? "Room view" : "Expand screen"}
-              </button>
-              <span className="screening-time" data-testid="screening-time">
-                {clockTime(party.position)} /{" "}
-                {totalDuration ? clockTime(totalDuration) : "--:--"}
-              </span>
-              <button
-                className="theater-audio"
-                disabled={party.state.source.kind === "ambient"}
-                aria-pressed={!muted}
-                onClick={() => setMuted((value) => !value)}
-              >
-                {party.state.source.kind === "ambient"
-                  ? "Silent screening"
-                  : muted
-                    ? "Sound off"
-                    : "Sound on"}
-              </button>
-            </div>
-            <input
-              type="range"
-              className="screening-progress"
-              aria-label="Screening progress"
-              min="0"
-              max={totalDuration || 1}
-              step="1"
-              value={Math.min(party.position, totalDuration || 1)}
-              disabled={!active || !totalDuration}
-              onChange={(event) =>
-                party.publish({ position: Number(event.target.value) })
-              }
-            />
-            <div className="theater-bottom">
-              <span>
-                {selectedSeat
-                  ? `Settled into ${selectedSeat}. Stay a little while.`
-                  : "Wander over to a sofa. There’s no rush."}
-              </span>
-              {nearby && !focusScreen && (
-                <button onClick={interact}>
-                  <kbd>E</kbd> {nearby.label}
-                </button>
-              )}
-            </div>
           </div>
         </div>
-        <aside
-          className="watch-party-panel"
-          aria-labelledby="watch-party-title"
-        >
-          <header className="watch-party-heading">
-            <span className="pair-eyebrow">GOOD COMPANY. NO AGENDA.</span>
-            <h1 id="watch-party-title">
-              Watch party<span>✦</span>
-            </h1>
-            <p>
-              <i className="green-dot" /> {party.count}{" "}
-              {party.count === 1 ? "guest" : "guests"} here · local room
-            </p>
-            <span className="watch-party-local">
-              {party.connected
-                ? "Playback & chat shared across browser tabs."
-                : "Solo mode · this browser can’t connect other tabs."}
-            </span>
-          </header>
-          <div className="watch-party-content">
-            <section className="watch-party-queue">
-              <div className="theater-section-heading">
-                <h2>
-                  Up next <small>{party.state.queue.length}</small>
-                </h2>
-                <button
-                  aria-expanded={showVideoForm}
-                  onClick={() => setShowVideoForm((value) => !value)}
-                >
-                  {showVideoForm ? "Cancel" : "+ Add video"}
-                </button>
-              </div>
-              {showVideoForm && (
-                <form className="theater-video-form" onSubmit={addVideo}>
-                  <label htmlFor="screening-title">
-                    A name for the screening
-                  </label>
-                  <input
-                    id="screening-title"
-                    value={videoTitle}
-                    maxLength={80}
-                    onChange={(event) => setVideoTitle(event.target.value)}
-                    placeholder="A little movie night"
-                  />
-                  <label htmlFor="screening-url">Direct video link</label>
-                  <input
-                    id="screening-url"
-                    type="url"
-                    required
-                    value={videoURL}
-                    onChange={(event) => setVideoURL(event.target.value)}
-                    placeholder="https://…/film.mp4"
-                  />
-                  <small>MP4 or WebM · choose a video you can share.</small>
-                  <button className="pair-primary">Add to queue ↗</button>
-                </form>
-              )}
-              <ol>
-                {party.state.queue.map((item) => (
-                  <li key={item.id}>
-                    <div className={`queue-thumbnail queue-${item.id}`}>
-                      {item.kind === "ambient" ? (
-                        <AmbientFilm film={item} playing={false} />
-                      ) : (
-                        <span>▶</span>
-                      )}
-                    </div>
-                    <div className="queue-description">
-                      <strong>{item.title}</strong>
-                      <span>
-                        {item.kind === "ambient"
-                          ? "10 min · ambient loop"
-                          : "Shared video link"}
-                      </span>
-                      <button
-                        onClick={() => {
-                          party.playItem(item);
-                          setNotice("Ready when you are. Press Play together.");
-                        }}
-                      >
-                        Screen this ↗
-                      </button>
-                    </div>
-                    <button
-                      className="queue-remove"
-                      aria-label={`Remove ${item.title} from queue`}
-                      onClick={() => party.removeItem(item.id)}
-                    >
-                      ✕
-                    </button>
-                  </li>
-                ))}
-              </ol>
-              {!party.state.queue.length && (
-                <p className="theater-empty-queue">
-                  A little breathing room. Add a video, or bring back an ambient
-                  loop.
-                </p>
-              )}
-              <button
-                className="theater-ambient-reset"
-                onClick={() => {
-                  const missing = ambientFilms.filter(
-                    (film) =>
-                      film.id !== party.state.source.id &&
-                      !party.state.queue.some((item) => item.id === film.id),
-                  );
-                  if (!missing.length) {
-                    setNotice("All the ambient loops are already in the room.");
-                    return;
-                  }
-                  party.publish({
-                    queue: [...party.state.queue, ...missing].slice(0, 12),
-                  });
-                }}
-              >
-                + Browse the ambient shelf
-              </button>
-            </section>
-            <section className="watch-party-reactions">
-              <h2>A little reaction</h2>
-              <div>
-                {reactions.map((reaction) => (
-                  <button
-                    key={reaction}
-                    aria-label={`React ${reaction}`}
-                    onClick={() => party.react(reaction)}
-                  >
-                    {reaction}
-                  </button>
-                ))}
-              </div>
-              <span className="theater-reaction-status" role="status">
-                {party.bursts.at(-1)
-                  ? `${party.isYou(party.bursts.at(-1).sender) ? "You" : "A studio friend"} sent ${party.bursts.at(-1).value}`
-                  : "Quiet company is welcome, too."}
-              </span>
-            </section>
-            <section className="watch-party-chat">
-              <h2>From the sofas</h2>
-              <div
-                ref={chatLog}
-                className="theater-chat-log"
-                role="log"
-                aria-live="polite"
-              >
-                {!party.messages.length && (
-                  <p className="theater-chat-empty">
-                    Say hello, trade a thought, or just enjoy the company.
-                  </p>
-                )}
-                {party.messages.map((message) => (
-                  <p key={message.id}>
-                    <strong>
-                      {party.isYou(message.sender) ? "You" : "A studio friend"}
-                    </strong>
-                    <span>{message.value}</span>
-                  </p>
-                ))}
-              </div>
-              <form
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  party.sendChat(draft);
-                  setDraft("");
-                }}
-              >
-                <input
-                  aria-label="Message the theater"
-                  value={draft}
-                  maxLength={300}
-                  onChange={(event) => setDraft(event.target.value)}
-                  placeholder="A thought from your sofa…"
-                />
-                <button
-                  disabled={!draft.trim()}
-                  aria-label="Send theater message"
-                >
-                  ↗
-                </button>
-              </form>
-            </section>
-            <section className="theater-share">
-              <span>Save a spot for a friend.</span>
-              <p>
-                Open the local room link in another tab on this device to watch
-                together.
-              </p>
-              <button
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(roomLink.href);
-                    setNotice(
-                      "Local room link copied. Open it in another tab on this device.",
-                    );
-                  } catch {
-                    setNotice(
-                      "Copy wasn’t available. Use the local room link below.",
-                    );
-                  }
-                }}
-              >
-                Copy local room link ↗
-              </button>
-              <a href={roomLink.href} target="_blank" rel="noreferrer">
-                Open another seat ↗
-              </a>
-            </section>
-            {(notice || mediaError) && (
-              <p className="theater-notice" role="status">
-                {mediaError || notice}
-              </p>
-            )}
-          </div>
-          <footer className="theater-panel-footer">
-            <span>Two familiar faces are here as demo guests.</span>
-            <button onClick={exit}>← Back to studio</button>
-          </footer>
-        </aside>
       </div>
     </div>
   );

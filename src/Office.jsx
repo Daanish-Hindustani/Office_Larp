@@ -7,6 +7,11 @@ import {
 } from "react";
 import { people, desks } from "./data";
 import CharacterSprite from "./PlayerSprite";
+import {
+  RemotePlayers,
+  usePublishActor,
+  useSeatReservation,
+} from "./Multiplayer";
 import ChairSprite from "./ChairSprite";
 import {
   canWalk,
@@ -36,7 +41,17 @@ export function Avatar({ sprite = 0, className = "" }) {
   );
 }
 const Office = forwardRef(function Office(
-  { onVisit, onChat, onEnterTheater, onEnterLeetCode, paused, onNearby, emote },
+  {
+    onVisit,
+    onChat,
+    onEnterTheater,
+    onEnterLeetCode,
+    paused,
+    onNearby,
+    onSeatLost,
+    emote,
+    visible = true,
+  },
   ref,
 ) {
   const playerElement = useRef(null),
@@ -55,6 +70,7 @@ const Office = forwardRef(function Office(
     seatId: null,
     chairOffset: 0,
   });
+  usePublishActor("studio", actor, visible);
   const npcs = useRef(null);
   if (!npcs.current) npcs.current = people.map(makeNpc);
   const keys = useRef(new Set()),
@@ -72,6 +88,20 @@ const Office = forwardRef(function Office(
     paused,
     onNearby,
   };
+  const seat = useSeatReservation("studio", visible, () => {
+    const a = actor.current;
+    const chair = chairs.find((chair) => chair.id === a.seatId);
+    if (chair) {
+      a.x = chair.entry.x;
+      a.y = chair.entry.y;
+    }
+    a.state = "standing";
+    a.seatId = null;
+    a.chairOffset = 0;
+    stop();
+    onSeatLost?.();
+  });
+  callbacks.current.seat = seat;
   const [nearby, setNearby] = useState(null),
     [target, setTarget] = useState(null),
     [message, setMessage] = useState(null),
@@ -86,25 +116,28 @@ const Office = forwardRef(function Office(
     actor.current.stride = 0;
   }
   function available(chair) {
-    return !npcs.current.some(
-      (n) =>
-        n.seat.id === chair.id &&
-        [
-          "sitting",
-          "sitting-down",
-          "standing-up",
-          "rolling-in",
-          "rolling-out",
-          "approaching",
-          "lining-up",
-          "grabbing-chair",
-          "pulling-chair",
-          "positioning",
-          "clearing-seat",
-          "pushing-chair",
-          "chair-cleared",
-          "leaving",
-        ].includes(n.state),
+    return (
+      !callbacks.current.seat?.occupant(chair.id) &&
+      !npcs.current.some(
+        (n) =>
+          n.seat.id === chair.id &&
+          [
+            "sitting",
+            "sitting-down",
+            "standing-up",
+            "rolling-in",
+            "rolling-out",
+            "approaching",
+            "lining-up",
+            "grabbing-chair",
+            "pulling-chair",
+            "positioning",
+            "clearing-seat",
+            "pushing-chair",
+            "chair-cleared",
+            "leaving",
+          ].includes(n.state),
+      )
     );
   }
   function stand() {
@@ -115,7 +148,7 @@ const Office = forwardRef(function Office(
       stop();
     }
   }
-  function interact(choice = nearest.current) {
+  async function interact(choice = nearest.current) {
     if (!choice || callbacks.current.paused) return;
     const a = actor.current;
     if (choice.kind === "door") {
@@ -158,7 +191,24 @@ const Office = forwardRef(function Office(
     }
     if (choice.kind === "chair") {
       const chair = chairs.find((c) => c.id === choice.id);
-      if (!chair || !available(chair) || distance(a, chair) > 9) return;
+      if (
+        a.state !== "standing" ||
+        !chair ||
+        !available(chair) ||
+        distance(a, chair) > 9
+      )
+        return;
+      stop();
+      if (!(await callbacks.current.seat.claim(chair.id))) return;
+      if (
+        callbacks.current.paused ||
+        a.state !== "standing" ||
+        !available(chair) ||
+        distance(a, chair) > 9
+      ) {
+        void callbacks.current.seat.release();
+        return;
+      }
       playerElement.current
         ?.closest(".office-map")
         ?.focus({ preventScroll: true });
@@ -171,6 +221,10 @@ const Office = forwardRef(function Office(
       return;
     }
     if (choice.kind === "computer") {
+      if (callbacks.current.seat.occupant(choice.desk.id)) {
+        setMessage("That desk is occupied. Try another one.");
+        return;
+      }
       stop();
       callbacks.current.onVisit(choice.desk);
     }
@@ -300,6 +354,7 @@ const Office = forwardRef(function Office(
       const dt = Math.min((time - last) / 1000 || 0, 0.04);
       last = time;
       const a = actor.current;
+      const wasSitting = a.state === "sitting";
       if (!callbacks.current.paused) {
         a.elapsed += dt;
         const blocked = (next) =>
@@ -309,6 +364,7 @@ const Office = forwardRef(function Office(
           if (!available(chair)) {
             a.state = "standing";
             a.seatId = null;
+            void callbacks.current.seat.release();
           } else if (route.current.length) {
             followPath(a, route.current, dt, 14, blocked);
           } else if (distance(a, chair.grip) < 0.2) {
@@ -333,6 +389,7 @@ const Office = forwardRef(function Office(
           if (distance(a, chair.entry) < 0.2) {
             a.state = "standing";
             a.seatId = null;
+            void callbacks.current.seat.release();
             if (resumeWalk.current) {
               const { destination, intention } = resumeWalk.current;
               route.current = pathTo(a, destination);
@@ -398,7 +455,14 @@ const Office = forwardRef(function Office(
           enterRoom("theater");
         else if (a.state === "standing" && a.x > 62 && a.x < 70 && a.y > 97)
           enterRoom("leetcode");
-        for (const npc of npcs.current) updateNpc(npc, dt, a, npcs.current);
+        for (const npc of npcs.current)
+          updateNpc(
+            npc,
+            dt,
+            a,
+            npcs.current,
+            Boolean(callbacks.current.seat.occupant(npc.id)),
+          );
       }
       for (const chair of chairs) {
         const owner =
@@ -482,6 +546,10 @@ const Office = forwardRef(function Office(
         setNearby(choice);
         callbacks.current.onNearby(choice);
       } else nearest.current = choice;
+      if (!wasSitting && a.state === "sitting") {
+        const chair = chairs.find((chair) => chair.id === a.seatId);
+        if (chair) callbacks.current.onVisit(chair.desk);
+      }
       request = requestAnimationFrame(tick);
     }
     request = requestAnimationFrame(tick);
@@ -538,6 +606,7 @@ const Office = forwardRef(function Office(
         alt="Cozy pixel office with computers, chairs, plants and a sofa lounge"
         draggable="false"
       />
+      <RemotePlayers room="studio" />
       {chairs.map((chair) => (
         <ChairSprite
           key={chair.id}
@@ -554,10 +623,7 @@ const Office = forwardRef(function Office(
           event.stopPropagation();
           walkTo({ x: 50, y: 100 });
         }}
-      >
-        <span>THEATER</span>
-        <span aria-hidden="true">↓</span>
-      </button>
+      />
       <button
         className="theater-door leetcode-door"
         aria-label="Walk to the algorithm room to the right of the theater"
@@ -565,10 +631,7 @@ const Office = forwardRef(function Office(
           event.stopPropagation();
           walkTo({ x: 66, y: 100 });
         }}
-      >
-        <span>CODE CLUB</span>
-        <span aria-hidden="true">↓</span>
-      </button>
+      />
       {desks.map((d) => (
         <button
           key={d.id}
@@ -584,10 +647,19 @@ const Office = forwardRef(function Office(
             const choice = { kind: "computer", id: d.id };
             walkTo({ x: d.x, y: d.y + 3 }, choice);
           }}
+          disabled={Boolean(seat.occupant(d.id))}
+          title={
+            seat.occupant(d.id)
+              ? `Occupied by ${seat.occupant(d.id).name}`
+              : undefined
+          }
           aria-label={`Visit ${d.name}’s computer — ${d.project}`}
         >
           <span className="desk-tooltip">
-            {d.name}’s desk <span>↗</span>
+            {seat.occupant(d.id)
+              ? `Occupied by ${seat.occupant(d.id).name}`
+              : `${d.name}’s desk`}{" "}
+            <span>↗</span>
           </span>
           <span className="monitor-glint" />
         </button>
@@ -606,9 +678,19 @@ const Office = forwardRef(function Office(
             e.stopPropagation();
             approach({ kind: "chair", id: c.id });
           }}
+          disabled={Boolean(seat.occupant(c.id))}
+          title={
+            seat.occupant(c.id)
+              ? `Occupied by ${seat.occupant(c.id).name}`
+              : undefined
+          }
           aria-label={`Sit in ${c.name}`}
         >
-          <span className="desk-tooltip">Sit here</span>
+          <span className="desk-tooltip">
+            {seat.occupant(c.id)
+              ? `Occupied by ${seat.occupant(c.id).name}`
+              : "Sit here"}
+          </span>
         </button>
       ))}
       {people.map((p, i) => (
@@ -643,7 +725,7 @@ const Office = forwardRef(function Office(
             aria-label={`Talk to ${p.name}`}
           />
           <span className="nameplate">
-            {p.name}
+            {p.name} · NPC
             <i />
           </span>
           {bubble === i && <div className="speech-bubble">{p.quote}</div>}

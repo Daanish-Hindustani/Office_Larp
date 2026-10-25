@@ -1,4 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
+import { useWorld } from "./Multiplayer";
+import Conversation from "./Conversation";
 import Office from "./Office";
 import ProjectWindow from "./ProjectWindow";
 import PairLobby from "./PairLobby";
@@ -94,12 +96,13 @@ function Help({ onClose }) {
         <button className="primary-button" onClick={onClose}>
           Let’s look around ↗
         </button>
-        <small>Hackathon mode · mock people, real curiosity.</small>
+        <small>Shared office · real people and NPC practice companions.</small>
       </section>
     </div>
   );
 }
 export default function App() {
+  const world = useWorld();
   const [active, setActive] = useState(null),
     [help, setHelp] = useState(false),
     [pairLobby, setPairLobby] = useState(false),
@@ -111,7 +114,10 @@ export default function App() {
     }),
     [nearby, setNearby] = useState(null);
   const office = useRef(null);
-  useEffect(() => activity.connect(), []);
+  useEffect(() => {
+    activity.setAccount(world.user);
+    return activity.connect();
+  }, [world.user]);
   const closeLeaderboard = useCallback(() => setLeaderboard(null), []);
   function enterTheater() {
     setRoom("theater");
@@ -166,8 +172,15 @@ export default function App() {
         <span className="header-divider" />
         <span className="office-subtitle">A little space for big ideas.</span>
         <div className="header-actions">
-          <span className="online">
-            <i />5 online
+          <span
+            className="online"
+            data-testid="connection-status"
+            data-connected={world.connected}
+          >
+            <i />
+            {world.connected
+              ? `${new Set(world.players.map((p) => p.id)).size} online`
+              : "Reconnecting…"}
           </span>
           <button
             className="chrome-button leaderboard-launch"
@@ -222,17 +235,22 @@ export default function App() {
             <div className="map-frame">
               <Office
                 ref={office}
+                visible={room === "studio"}
                 paused={Boolean(
                   active ||
-                    help ||
-                    pairLobby ||
-                    leaderboard ||
-                    room !== "studio",
+                  world.conversation ||
+                  help ||
+                  pairLobby ||
+                  leaderboard ||
+                  room !== "studio",
                 )}
                 onEnterTheater={enterTheater}
                 onEnterLeetCode={enterLeetCode}
                 onVisit={openWorkspace}
-                onChat={openWorkspace}
+                onSeatLost={closeProject}
+                onChat={(person) =>
+                  world.setConversation({ ...person, remote: false })
+                }
                 onNearby={setNearby}
               />
             </div>
@@ -265,16 +283,25 @@ export default function App() {
           </div>
           <TheaterRoom
             visible={room === "theater"}
-            paused={Boolean(active || help || pairLobby || leaderboard)}
+            paused={Boolean(
+              active || world.conversation || help || pairLobby || leaderboard,
+            )}
             onExit={returnToStudio}
           />
           <LeetCodeRoom
             visible={room === "leetcode"}
-            paused={Boolean(active || help || pairLobby || leaderboard)}
+            paused={Boolean(
+              active || world.conversation || help || pairLobby || leaderboard,
+            )}
             onExit={returnToStudio}
           />
         </section>
       </main>
+      {world.error && (
+        <p className="world-error runtime-error" role="alert">
+          {world.error}
+        </p>
+      )}
       <footer className="controls-bar">
         <div className="keyboard-controls">
           <span className="key-group">
@@ -300,6 +327,13 @@ export default function App() {
           <span className="mouse-icon">↖</span>
           <span>Click to approach · E to interact</span>
         </div>
+        <button
+          className="chrome-button"
+          onClick={world.logout}
+          title={`Signed in as ${world.user.name}`}
+        >
+          Sign out
+        </button>
         <span className="footer-note">
           Built for a little serendipity. <span>✦</span>
         </span>
@@ -316,6 +350,13 @@ export default function App() {
             setLeaderboard("pairs");
           }}
           onClose={closeProject}
+        />
+      )}
+      {world.conversation && (
+        <Conversation
+          key={world.conversation.id}
+          person={world.conversation}
+          onClose={() => world.setConversation(null)}
         />
       )}
       {help && <Help onClose={() => setHelp(false)} />}

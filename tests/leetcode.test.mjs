@@ -1,3 +1,8 @@
+import {
+  signedInPage,
+  signedInContext,
+  authenticatedFetch,
+} from "./auth-helpers.mjs";
 import { before, after, test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -22,6 +27,7 @@ before(async () => {
       stdio: "pipe",
       env: {
         ...process.env,
+        OFFICE_DB: `test-results/accounts-${process.pid}-${new URL(url).port}.sqlite`,
         OFFICE_ACTIVITY_FILE: `test-results/leetcode-activity-${process.pid}.json`,
       },
     },
@@ -90,7 +96,7 @@ const solution = `var twoSum = function(nums, target) {
   }
 };`;
 async function setup(viewport = { width: 1536, height: 1024 }) {
-  const context = await browser.newContext({ viewport });
+  const context = await signedInContext(browser, url, { viewport });
   const controls = {
     catalogFails: false,
     problemFails: false,
@@ -188,37 +194,61 @@ async function enter(page) {
     .locator(".room-title")
     .filter({ hasText: "The algorithm room" })
     .waitFor();
-  await page.locator(".lab-problem-card").first().waitFor();
+  await page.locator(".lab-map").waitFor();
 }
 async function sit(page, id = "01") {
-  await page
-    .getByRole("button", { name: `Approach coding desk ${id}`, exact: true })
-    .click();
-  await page.waitForFunction(
-    (id) =>
-      document
-        .querySelector(".lab-player .interaction-prompt")
-        ?.textContent.includes(`Sit at desk ${id}`),
-    id,
-    { timeout: 20000 },
-  );
+  if (await page.locator(".lab-board-dialog[open]").count())
+    await page
+      .getByRole("button", { name: "Close leaderboard", exact: true })
+      .click();
+  const prompt = page.locator(".lab-player .interaction-prompt");
+  if (
+    !(await prompt.count()) ||
+    !(await prompt.innerText()).includes(`Sit at desk ${id}`)
+  ) {
+    await page
+      .getByRole("button", { name: `Approach coding desk ${id}`, exact: true })
+      .click();
+    await page.waitForFunction(
+      (id) =>
+        document
+          .querySelector(".lab-player .interaction-prompt")
+          ?.textContent.includes(`Sit at desk ${id}`),
+      id,
+      { timeout: 20000 },
+    );
+  }
   await page.keyboard.press("e");
   await page.waitForFunction(
     () =>
       document.querySelector('[data-testid="lab-player"]').dataset.state ===
       "sitting",
   );
+  await page.locator(".leetcode-workspace").waitFor();
 }
 async function openComputer(page) {
-  await page
-    .getByRole("button", { name: "Open computer", exact: false })
-    .last()
-    .click();
+  if (await page.locator(".lab-board-dialog[open]").count())
+    await page
+      .getByRole("button", { name: "Close leaderboard", exact: true })
+      .click();
+  if (!(await page.locator(".leetcode-workspace").count())) {
+    await page
+      .getByRole("button", { name: "Open computer", exact: false })
+      .last()
+      .click();
+  }
   await page
     .getByLabel("LeetCode JavaScript code")
     .waitFor({ state: "attached" });
 }
+async function openBoard(page) {
+  if (!(await page.locator(".lab-board-dialog[open]").count()))
+    await page
+      .getByRole("button", { name: "Open LeetCode leaderboard", exact: true })
+      .click();
+}
 async function addProfile(page, name) {
+  await openBoard(page);
   await page.getByLabel("Track a LeetCode username").fill(name);
   await page.getByRole("button", { name: "Add", exact: false }).click();
   await page
@@ -253,24 +283,22 @@ test("new room is right of the theater, uses seated computers, and preserves sel
         name: "Walk to the algorithm room to the right of the theater",
       })
       .click();
-    await page.locator(".lab-problem-card").first().waitFor();
+    await page.locator(".lab-map").waitFor();
+    assert.equal(
+      await page.getByRole("heading", { name: "The problem shelf" }).count(),
+      0,
+    );
+    assert.equal(await page.locator(".lab-sidebar").count(), 0);
+    await page.screenshot({
+      path: "/tmp/office-algorithm-room.png",
+      fullPage: true,
+    });
+    await sit(page);
+    await openComputer(page);
     await page
-      .locator(".lab-problem-card")
-      .filter({ hasText: "Binary Search" })
-      .click();
-    await page.waitForFunction(() =>
-      document
-        .querySelector(".lab-player .interaction-prompt")
-        ?.textContent.includes("Sit at desk 01"),
-    );
-    await page.keyboard.press("e");
-    await page.waitForFunction(() =>
-      document
-        .querySelector(".lab-player .interaction-prompt")
-        ?.textContent.includes("Open computer"),
-    );
-    await page.keyboard.press("e");
-    await page.getByLabel("LeetCode JavaScript code").waitFor();
+      .getByLabel("Choose a LeetCode problem")
+      .selectOption("binary-search");
+    await page.getByRole("heading", { name: /Binary Search/ }).waitFor();
     assert.match(
       await page.locator(".leetcode-workspace-intro h1").innerText(),
       /Binary Search/,
@@ -364,6 +392,7 @@ test("practice runs show failures, successes, stale output, reset undo, and reco
       "Tab should leave the editor",
     );
     await page.keyboard.press("Escape");
+    await openBoard(page);
     assert.equal(
       await page.locator(".leetcode-rank-score strong").innerText(),
       before,
@@ -429,6 +458,7 @@ test("live-profile rankings use weights, verify only new Accepted activity, and 
     await page
       .getByRole("button", { name: "Close LeetCode workspace" })
       .click();
+    await openBoard(page);
     assert.equal(
       await page
         .locator(".leetcode-ranks li")
@@ -509,14 +539,25 @@ test("outages and missing profiles are explicit, and retry loads actual problem 
   try {
     controls.catalogFails = true;
     await page.goto(`${url}/?room=leetcode`);
+    await sit(page);
+    await openComputer(page);
     await page
       .getByRole("alert")
       .filter({ hasText: "LeetCode is unavailable" })
       .waitFor();
     assert.equal(await page.locator(".lab-problem-card").count(), 0);
     controls.catalogFails = false;
-    await page.getByRole("button", { name: "Try again", exact: false }).click();
-    await page.locator(".lab-problem-card").first().waitFor();
+    await page
+      .getByRole("button", { name: "Retry problem catalog", exact: true })
+      .click();
+    await page
+      .locator('select[aria-label="Choose a LeetCode problem"] option')
+      .first()
+      .waitFor({ state: "attached" });
+    await page
+      .getByRole("button", { name: "Close LeetCode workspace" })
+      .click();
+    await openBoard(page);
     await page.getByLabel("Track a LeetCode username").fill("Missing");
     await page.getByRole("button", { name: "Add", exact: false }).click();
     await page
@@ -525,7 +566,9 @@ test("outages and missing profiles are explicit, and retry loads actual problem 
       .waitFor();
     assert.equal(await page.locator(".leetcode-ranks li").count(), 0);
     controls.problemFails = true;
-    await sit(page);
+    await page
+      .getByRole("button", { name: "Close leaderboard", exact: true })
+      .click();
     await page
       .getByRole("button", { name: "Open computer", exact: false })
       .last()
@@ -566,20 +609,16 @@ test("mobile workspace, official-site handoff, and blocked-storage fallback work
       ),
       false,
     );
-    await page
-      .getByLabel("Algorithm room view")
-      .getByRole("button", { name: "Leaderboard", exact: false })
-      .click();
     await addProfile(page, "Alice");
     await page.screenshot({
       path: "test-results/leetcode-mobile-board.png",
       animations: "disabled",
     });
     await page
-      .getByRole("button", { name: "Room & problems", exact: false })
+      .getByRole("button", { name: "Close leaderboard", exact: true })
       .click();
     await page.screenshot({
-      path: "test-results/leetcode-mobile-room.png",
+      path: "/tmp/office-algorithm-room-mobile.png",
       animations: "disabled",
       fullPage: true,
     });
@@ -623,5 +662,48 @@ test("mobile workspace, official-site handoff, and blocked-storage fallback work
     assert.deepEqual(errors, []);
   } finally {
     await context.close();
+  }
+});
+
+test("algorithm desks cannot be shared by two players and become available after standing", async () => {
+  const first = await setup(),
+    second = await setup();
+  try {
+    await enter(first.page);
+    await enter(second.page);
+    await sit(first.page, "01");
+    await second.page.waitForFunction(
+      () =>
+        document.querySelector('[aria-label="Approach coding desk 01"]')
+          .disabled,
+    );
+    await sit(second.page, "02");
+    await first.page
+      .getByRole("button", { name: "Close LeetCode workspace" })
+      .click();
+    await first.page
+      .getByRole("button", { name: "Stand up", exact: true })
+      .click();
+    await second.page
+      .getByRole("button", { name: "Close LeetCode workspace" })
+      .click();
+    await second.page
+      .getByRole("button", { name: "Stand up", exact: true })
+      .click();
+    await second.page.waitForFunction(
+      () =>
+        !document.querySelector('[aria-label="Approach coding desk 01"]')
+          .disabled,
+    );
+    await sit(second.page, "01");
+    await first.page.waitForFunction(
+      () =>
+        document.querySelector('[aria-label="Approach coding desk 01"]')
+          .disabled,
+    );
+    assert.deepEqual([...first.errors, ...second.errors], []);
+  } finally {
+    await first.context.close();
+    await second.context.close();
   }
 });

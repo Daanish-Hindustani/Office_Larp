@@ -1,3 +1,8 @@
+import {
+  signedInPage,
+  signedInContext,
+  authenticatedFetch,
+} from "./auth-helpers.mjs";
 import { before, after, test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -21,6 +26,7 @@ before(async () => {
       stdio: "pipe",
       env: {
         ...process.env,
+        OFFICE_DB: `test-results/accounts-${process.pid}-${new URL(url).port}.sqlite`,
         OFFICE_ACTIVITY_FILE: `test-results/pairing-activity-${process.pid}.json`,
       },
     },
@@ -66,7 +72,7 @@ async function openPair(page, name = "Milo") {
 }
 
 test("pairing: reviewed changes, driver ownership, pause, recap, and draft recovery", async () => {
-  const page = await browser.newPage({
+  const page = await signedInPage(browser, url, {
     viewport: { width: 1536, height: 1024 },
     acceptDownloads: true,
   });
@@ -152,7 +158,7 @@ test("pairing: reviewed changes, driver ownership, pause, recap, and draft recov
     assert.equal(await editor.getAttribute("readonly"), null);
     await page.getByRole("tab", { name: "Conversation" }).click();
     await page.getByLabel("Message Milo").fill("Any hackathon advice?");
-    await page.getByRole("button", { name: "Send" }).click();
+    await page.getByRole("button", { name: "Send ↗", exact: true }).click();
     await page.waitForFunction(
       () => document.querySelectorAll(".chat-message").length === 3,
     );
@@ -210,7 +216,7 @@ test("pairing: reviewed changes, driver ownership, pause, recap, and draft recov
 });
 
 test("ordinary desk access and editing still work when browser storage is blocked", async () => {
-  const page = await browser.newPage();
+  const page = await signedInPage(browser, url);
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   try {
@@ -274,7 +280,7 @@ test("ordinary desk access and editing still work when browser storage is blocke
 });
 
 test("five minute turns use elapsed time and exclude paused time", async () => {
-  const page = await browser.newPage();
+  const page = await signedInPage(browser, url);
   try {
     await openPair(page, "Jun");
     await page.clock.install();
@@ -306,7 +312,9 @@ test("five minute turns use elapsed time and exclude paused time", async () => {
 });
 
 test("pairing stays reachable on mobile and the lobby traps keyboard focus", async () => {
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const page = await signedInPage(browser, url, {
+    viewport: { width: 390, height: 844 },
+  });
   try {
     await page.goto(url);
     await page.getByRole("button", { name: "Pair up", exact: true }).click();
@@ -360,6 +368,248 @@ test("pairing stays reachable on mobile and the lobby traps keyboard focus", asy
     );
     await page.getByRole("button", { name: "Close project" }).click();
     assert.equal(await page.getByRole("dialog").count(), 0);
+  } finally {
+    await page.close();
+  }
+});
+
+test("sitting opens the studio computer once, and NPC interactions open a character conversation", async () => {
+  const page = await signedInPage(browser, url, {
+    viewport: { width: 1440, height: 1000 },
+  });
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  try {
+    await page.goto(url);
+    await page
+      .getByRole("button", { name: "Sit in Your chair", exact: true })
+      .click();
+    await page.waitForFunction(() =>
+      document
+        .querySelector('[aria-label="Sit in Your chair"]')
+        ?.classList.contains("interaction-target"),
+    );
+    await page.keyboard.press("e");
+    await page.getByLabel("Project HTML code").waitFor();
+    assert.equal(
+      await page.getByTestId("player").getAttribute("data-state"),
+      "sitting",
+    );
+    await page
+      .getByRole("button", { name: "Close project", exact: true })
+      .click();
+    await page.waitForTimeout(300);
+    assert.equal(
+      await page.getByLabel("Project HTML code").count(),
+      0,
+      "Closing a computer must not reopen it while still seated",
+    );
+    await page.reload();
+    await page
+      .getByRole("button", { name: "Talk to Ada", exact: true })
+      .click();
+    await page.waitForFunction(() =>
+      document
+        .querySelector(".player .interaction-prompt")
+        ?.textContent.includes("Talk to Ada"),
+    );
+    await page.keyboard.press("e");
+    const conversation = page.getByRole("dialog", {
+      name: "Conversation with Ada",
+      exact: true,
+    });
+    await conversation.waitFor();
+    assert.equal(
+      await conversation.locator(".conversation-portrait canvas").count(),
+      1,
+    );
+    assert.equal(await page.getByLabel("Project HTML code").count(), 0);
+    await page.getByLabel("Message Ada").fill("Hello Ada!");
+    await conversation
+      .getByRole("button", { name: "Send ↗", exact: true })
+      .click();
+    await conversation
+      .getByRole("log")
+      .getByText("Hello Ada!", { exact: true })
+      .waitFor();
+    await conversation
+      .getByRole("log")
+      .getByText("Hey, welcome to the studio!", { exact: false })
+      .waitFor();
+    await conversation
+      .getByRole("button", { name: "Previous dialogue", exact: true })
+      .click();
+    await conversation
+      .getByRole("log")
+      .getByText("Hello Ada!", { exact: true })
+      .waitFor();
+    await conversation
+      .getByRole("button", { name: "Next dialogue", exact: true })
+      .click();
+    await conversation
+      .getByRole("log")
+      .getByText("Hey, welcome to the studio!", { exact: false })
+      .waitFor();
+    await page.screenshot({ path: "/tmp/office-character-conversation.png" });
+    await page.setViewportSize({ width: 576, height: 384 });
+    assert.equal(
+      await conversation.evaluate((node) => {
+        const rect = node.getBoundingClientRect();
+        return (
+          rect.left >= 0 &&
+          rect.right <= innerWidth &&
+          rect.top >= 0 &&
+          rect.bottom <= innerHeight
+        );
+      }),
+      true,
+    );
+    await page.screenshot({ path: "/tmp/office-dialogue-reference-size.png" });
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.equal(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth > innerWidth,
+      ),
+      false,
+    );
+    await page.getByLabel("Message Ada").fill("A little mobile hello");
+    await page.screenshot({
+      path: "/tmp/office-character-conversation-mobile.png",
+    });
+    await page.keyboard.press("Escape");
+    await conversation.waitFor({ state: "detached" });
+    assert.deepEqual(errors, []);
+  } finally {
+    await page.close();
+  }
+});
+
+test("computer projects run separate HTML, CSS and JS files and preserve added files", async () => {
+  const page = await signedInPage(browser, url, {
+    viewport: { width: 1440, height: 1000 },
+  });
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  async function openDesk() {
+    await page.goto(url);
+    await page
+      .getByRole("button", { name: "Visit Your desk’s computer", exact: false })
+      .click();
+    await page.waitForFunction(() =>
+      document
+        .querySelector(".player .interaction-prompt")
+        ?.textContent.includes("Open computer"),
+    );
+    await page.keyboard.press("e");
+    await page.getByLabel("Project HTML code").waitFor();
+  }
+  async function addFile(name) {
+    await page.getByRole("button", { name: "+ Add file", exact: true }).click();
+    await page.getByLabel("New file name").fill(name);
+    await page
+      .getByRole("button", { name: "Create file", exact: true })
+      .click();
+  }
+  try {
+    await openDesk();
+    const html =
+      '<!doctype html><html><head><link rel="stylesheet" href="./styles.css"></head><body><h1 id="result">HTML works</h1><button id="go">Try JavaScript</button><p id="extra"></p><script src="./script.js"></script></body></html>';
+    await page.getByLabel("Project HTML code").fill(html);
+    await page.getByRole("button", { name: "styles.css", exact: true }).click();
+    await page
+      .getByLabel("Project CSS code")
+      .fill("body { background: rgb(12, 34, 56); }");
+    await page.getByRole("button", { name: "script.js", exact: true }).click();
+    await page
+      .getByLabel("Project JavaScript code")
+      .fill(
+        'window.runCount = (window.runCount || 0) + 1; document.querySelector("#go").onclick = () => { document.querySelector("#result").textContent = "JS works " + window.runCount; };',
+      );
+    await addFile("extra.js");
+    await page
+      .getByLabel("Project JavaScript code")
+      .fill(
+        'document.querySelector("#extra").textContent = "Extra JavaScript loaded";',
+      );
+    await addFile("extra.css");
+    await page.getByLabel("Project CSS code").fill("h1 { font-size: 37px; }");
+    await page.getByRole("button", { name: "Run", exact: false }).click();
+    const preview = page.frameLocator('iframe[title="Your project preview"]');
+    await preview
+      .getByText("Extra JavaScript loaded", { exact: true })
+      .waitFor();
+    assert.equal(
+      await preview
+        .locator("body")
+        .evaluate((node) => getComputedStyle(node).backgroundColor),
+      "rgb(12, 34, 56)",
+    );
+    assert.equal(
+      await preview
+        .locator("h1")
+        .evaluate((node) => getComputedStyle(node).fontSize),
+      "37px",
+    );
+    await preview.getByRole("button", { name: "Try JavaScript" }).click();
+    await preview
+      .getByRole("heading", { name: "JS works 1", exact: true })
+      .waitFor();
+    await page.getByRole("button", { name: "index.html", exact: true }).click();
+    assert.equal(await page.getByLabel("Project HTML code").inputValue(), html);
+    await addFile("about.html");
+    await page
+      .getByLabel("Project HTML code")
+      .fill(html.replace("HTML works", "Another HTML page"));
+    assert.equal(
+      await page.getByLabel("Preview HTML file").inputValue(),
+      "about.html",
+    );
+    await page.getByRole("button", { name: "Run", exact: false }).click();
+    await preview
+      .getByRole("heading", { name: "Another HTML page", exact: true })
+      .waitFor();
+    await addFile("Styles.CSS");
+    await page
+      .getByRole("alert")
+      .filter({ hasText: "already exists" })
+      .waitFor();
+    await page.getByLabel("New file name").fill("../escape.js");
+    await page
+      .getByRole("button", { name: "Create file", exact: true })
+      .click();
+    await page
+      .getByRole("alert")
+      .filter({ hasText: "without folders" })
+      .waitFor();
+    await page.getByRole("button", { name: "+ Add file", exact: true }).click();
+    await page.screenshot({ path: "/tmp/office-multi-file-computer.png" });
+    await page
+      .getByRole("button", { name: "Close project", exact: true })
+      .click();
+    await openDesk();
+    await page.getByRole("button", { name: "extra.js", exact: true }).click();
+    assert.match(
+      await page.getByLabel("Project JavaScript code").inputValue(),
+      /Extra JavaScript loaded/,
+    );
+    await page.getByLabel("Preview HTML file").selectOption("about.html");
+    await page.getByRole("button", { name: "Run", exact: false }).click();
+    await preview
+      .getByRole("heading", { name: "Another HTML page", exact: true })
+      .waitFor();
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.equal(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth > innerWidth,
+      ),
+      false,
+    );
+    await page.screenshot({
+      path: "/tmp/office-multi-file-computer-mobile.png",
+      fullPage: true,
+    });
+    assert.deepEqual(errors, []);
   } finally {
     await page.close();
   }

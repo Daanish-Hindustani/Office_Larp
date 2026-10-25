@@ -1,5 +1,13 @@
 import { useState, useEffect, useRef } from "react";
 import { projectHTML } from "./data";
+import {
+  buildProjectDocument,
+  fileLanguage,
+  newProjectFile,
+  readProjectFiles,
+  validProjectFilename,
+} from "./projectFiles";
+import "./projectFiles.css";
 import ChatWindow from "./ChatWindow";
 import PairPanel, { PairBar, PairRecap } from "./PairPanel";
 import { proposeChange, usePairSession } from "./pairing";
@@ -141,23 +149,26 @@ export default function ProjectWindow({
   initialPairing = false,
   onLeaderboard,
 }) {
-  const [code, setCode] = useState(() => {
-      try {
-        return (
-          sessionStorage.getItem(`office-hours:html:${person.id}`) ??
-          projectHTML(person)
-        );
-      } catch {
-        return projectHTML(person);
-      }
-    }),
+  const [files, setFiles] = useState(() =>
+      readProjectFiles(person.id, projectHTML(person)),
+    ),
     [output, setOutput] = useState(null),
     [runVersion, setRunVersion] = useState(0),
     [tab, setTab] = useState("index.html"),
     [response, setResponse] = useState(
       person.hello ||
-        "Your desk, your ideas. Edit the HTML and run it to bring something to life.",
+        "Your desk, your ideas. Edit HTML, CSS and JavaScript files, then Run.",
     );
+  const code = files["index.html"];
+  const setCode = (value) =>
+    setFiles((previous) => ({ ...previous, "index.html": value }));
+  const activeCode = files[tab] ?? "";
+  const [entry, setEntry] = useState("index.html");
+  const [lastRun, setLastRun] = useState("");
+  const [addingFile, setAddingFile] = useState(false);
+  const [filename, setFilename] = useState("");
+  const [fileError, setFileError] = useState("");
+  const snapshot = JSON.stringify({ files, entry });
   const pair = usePairSession(person);
   const pairing = pair.session?.phase === "active";
   const ended = pair.session?.phase === "ended";
@@ -179,15 +190,73 @@ export default function ProjectWindow({
   };
   useEffect(() => {
     try {
+      sessionStorage.setItem(
+        `office-hours:files:${person.id}:v1`,
+        JSON.stringify({ version: 1, files }),
+      );
       sessionStorage.setItem(`office-hours:html:${person.id}`, code);
       setDraftSaved(true);
     } catch {
       setDraftSaved(false);
     }
-  }, [code, person.id]);
+  }, [files, person.id]);
   useEffect(() => {
     if (ended) closeRef.current?.focus();
   }, [ended]);
+  const editingLocked =
+    pairing && (pair.session.driver === "partner" || pair.session.paused);
+  function selectFile(name) {
+    setTab(name);
+    if (/\.html$/i.test(name)) setEntry(name);
+  }
+  function addFile(event) {
+    event.preventDefault();
+    if (editingLocked) return;
+    const name = filename.trim();
+    if (!validProjectFilename(name)) {
+      setFileError(
+        "Use a filename ending in .html, .css or .js, without folders or spaces.",
+      );
+      return;
+    }
+    if (
+      Object.keys(files).some(
+        (existing) => existing.toLowerCase() === name.toLowerCase(),
+      )
+    ) {
+      setFileError("A file with that name already exists.");
+      return;
+    }
+    if (Object.keys(files).length >= 30) {
+      setFileError("This project can contain up to 30 files.");
+      return;
+    }
+    setFiles((previous) => ({ ...previous, [name]: newProjectFile(name) }));
+    selectFile(name);
+    setFilename("");
+    setAddingFile(false);
+    setFileError("");
+  }
+  function runProject() {
+    try {
+      setOutput(buildProjectDocument(files, entry));
+      setLastRun(snapshot);
+      setRunVersion((version) => version + 1);
+      setFileError("");
+      if (pairing)
+        pair.update((s) => ({
+          ...s,
+          runs: s.runs + 1,
+          checks: [s.checks[0], true, s.checks[2]],
+          activity: [
+            "Project files opened in the preview.",
+            ...s.activity,
+          ].slice(0, 8),
+        }));
+    } catch (error) {
+      setFileError(error.message);
+    }
+  }
   function suggest(type) {
     const next = proposeChange(code, person, type);
     setSuggestion(next.unavailable ? null : next);
@@ -204,6 +273,7 @@ export default function ProjectWindow({
     }
     setCode(suggestion.code);
     setTab("index.html");
+    setEntry("index.html");
     setMobilePanel("code");
     pair.log(
       `${person.name}’s change accepted: ${suggestion.title.toLowerCase()}.`,
@@ -220,7 +290,7 @@ export default function ProjectWindow({
       if (e.key === "Tab") {
         const nodes = [
           ...document.querySelectorAll(
-            ".project-window button,.project-window textarea,.project-window input,.project-window iframe",
+            ".project-window button,.project-window textarea,.project-window input,.project-window select,.project-window iframe",
           ),
         ].filter(
           (n) => !n.disabled && n.tabIndex >= 0 && n.getClientRects().length,
@@ -336,42 +406,82 @@ export default function ProjectWindow({
           <div className="workspace-body" data-mobile-panel={mobilePanel}>
             <div className="editor-layout">
               <section className="code-pane">
-                <div className="pane-toolbar">
-                  <button
-                    className={tab === "index.html" ? "selected" : ""}
-                    onClick={() => setTab("index.html")}
+                <div className="pane-toolbar project-file-toolbar">
+                  <div
+                    className="project-file-tabs"
+                    role="group"
+                    aria-label="Project files"
                   >
-                    <span className="code-file">◇</span> index.html
-                  </button>
-                  <button
-                    className={tab === "README.md" ? "selected" : ""}
-                    onClick={() => setTab("README.md")}
-                  >
-                    README.md
-                  </button>
+                    {Object.keys(files).map((name) => (
+                      <button
+                        key={name}
+                        className={tab === name ? "selected" : ""}
+                        onClick={() => selectFile(name)}
+                      >
+                        {name}
+                      </button>
+                    ))}
+                    <button
+                      className={tab === "README.md" ? "selected" : ""}
+                      onClick={() => setTab("README.md")}
+                    >
+                      README.md
+                    </button>
+                  </div>
                   <button
                     className="run"
-                    onClick={() => {
-                      setTab("index.html");
-                      setOutput(code);
-                      setRunVersion((version) => version + 1);
-                      if (pairing) {
-                        pair.update((s) => ({
-                          ...s,
-                          runs: s.runs + 1,
-                          checks: [s.checks[0], true, s.checks[2]],
-                          activity: [
-                            "Shared HTML opened in the preview.",
-                            ...s.activity,
-                          ].slice(0, 8),
-                        }));
-                      }
-                    }}
+                    onClick={runProject}
                     disabled={pairing && pair.session.paused}
                   >
                     ▶ Run
                   </button>
                 </div>
+                <div className="project-file-controls">
+                  <button
+                    onClick={() => {
+                      setAddingFile((value) => !value);
+                      setFileError("");
+                    }}
+                    disabled={editingLocked}
+                  >
+                    + Add file
+                  </button>
+                  <label>
+                    Preview page{" "}
+                    <select
+                      aria-label="Preview HTML file"
+                      value={entry}
+                      onChange={(event) => setEntry(event.target.value)}
+                    >
+                      {Object.keys(files)
+                        .filter((name) => /\.html$/i.test(name))
+                        .map((name) => (
+                          <option key={name}>{name}</option>
+                        ))}
+                    </select>
+                  </label>
+                </div>
+                {addingFile && (
+                  <form className="project-add-file" onSubmit={addFile}>
+                    <input
+                      aria-label="New file name"
+                      placeholder="example.js, styles.css or page.html"
+                      autoFocus
+                      maxLength={64}
+                      value={filename}
+                      onChange={(event) => setFilename(event.target.value)}
+                      disabled={editingLocked}
+                    />
+                    <button disabled={editingLocked || !filename.trim()}>
+                      Create file
+                    </button>
+                  </form>
+                )}
+                {fileError && (
+                  <p className="project-file-error" role="alert">
+                    {fileError}
+                  </p>
+                )}
                 {pairing && (
                   <div className="pair-editor-presence" role="status">
                     <i className="green-dot" />
@@ -382,27 +492,28 @@ export default function ProjectWindow({
                         : `${person.name} is driving · review a suggested change in Pair session`}
                   </div>
                 )}
-                {tab === "index.html" ? (
+                {tab !== "README.md" ? (
                   <div className="code-area">
                     <div
                       className="line-numbers"
                       aria-hidden="true"
                       ref={lineNumbers}
                     >
-                      {code.split("\n").map((_, i) => (
+                      {activeCode.split("\n").map((_, i) => (
                         <div key={i}>{i + 1}</div>
                       ))}
                     </div>
                     <textarea
                       spellCheck="false"
-                      aria-label="Project HTML code"
-                      value={code}
-                      readOnly={
-                        pairing &&
-                        (pair.session.driver === "partner" ||
-                          pair.session.paused)
+                      aria-label={`Project ${fileLanguage(tab)} code`}
+                      value={activeCode}
+                      readOnly={editingLocked}
+                      onChange={(e) =>
+                        setFiles((previous) => ({
+                          ...previous,
+                          [tab]: e.target.value,
+                        }))
                       }
-                      onChange={(e) => setCode(e.target.value)}
                       onScroll={(e) => {
                         if (lineNumbers.current)
                           lineNumbers.current.scrollTop =
@@ -415,14 +526,20 @@ export default function ProjectWindow({
                     <h2>{person.project}</h2>
                     <p>A tiny hackathon experiment by {person.name}.</p>
                     <p>
-                      The initial preview is an interactive mock. Edit
-                      index.html and hit Run to render your own HTML in the
-                      sandbox.
+                      Use Add file for .html, .css and .js files. Choose a
+                      preview page. All CSS and JavaScript files are included
+                      automatically; explicit stylesheet and script references
+                      are supported too. Files run in tab order.
                     </p>
                     <p>
-                      Your HTML draft is kept in this browser tab when storage
-                      is available. Pair with a coworker to set a goal, review
-                      ideas, and take turns driving.
+                      The initial preview is an interactive mock. Edit any HTML,
+                      CSS or JavaScript file and hit Run to preview the project
+                      in the sandbox.
+                    </p>
+                    <p>
+                      All project files are kept in this browser tab when
+                      storage is available. Pair with a coworker to set a goal,
+                      review ideas, and take turns driving.
                     </p>
                   </div>
                 )}
@@ -430,16 +547,19 @@ export default function ProjectWindow({
                   <span>
                     {draftSaved
                       ? "✓ Draft kept in this tab"
-                      : "⌘ HTML · draft not saved"}
+                      : "Draft not saved"}
                   </span>
-                  <span>UTF-8 · {code.split("\n").length} lines</span>
+                  <span>
+                    {fileLanguage(tab) || "Markdown"} · UTF-8 ·{" "}
+                    {activeCode.split("\n").length} lines
+                  </span>
                 </footer>
               </section>
               <section className="preview-pane">
                 <div className="pane-toolbar">
                   <span>
                     <i className="green-dot" />{" "}
-                    {output !== null && output !== code
+                    {output !== null && lastRun !== snapshot
                       ? "Changes to run"
                       : "Live preview"}
                   </span>

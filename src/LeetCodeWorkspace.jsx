@@ -260,6 +260,17 @@ export default function LeetCodeWorkspace({
             </select>
           </label>
         </div>
+        {room.catalogError && (
+          <div className="lab-notice" role="alert">
+            <p>{room.catalogError}</p>
+            <button
+              onClick={room.loadCatalog}
+              aria-label="Retry problem catalog"
+            >
+              Try again ↗
+            </button>
+          </div>
+        )}
         <div className="leetcode-mobile-tabs">
           <button
             aria-pressed={mobileView === "problem"}
