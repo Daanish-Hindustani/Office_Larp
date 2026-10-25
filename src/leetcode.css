@@ -612,19 +612,13 @@
   line-height: 1.6;
   font-weight: 500;
   color: #e5ddbd;
-  margin: 7px 0 0;
+  margin: 0;
   overflow-wrap: anywhere;
 }
 .leetcode-problem-switch {
   display: block;
   margin-left: auto;
   flex-shrink: 0;
-}
-.leetcode-problem-switch > span {
-  display: block;
-  color: #9caf91;
-  font: 8px var(--mono);
-  margin-bottom: 7px;
 }
 .leetcode-problem-switch select {
   max-width: 240px;
@@ -874,21 +868,6 @@
   display: block;
   padding: 6px 0 0;
 }
-.leetcode-workspace-footer {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 9px 20px;
-  background: #1f3029;
-  border-top: 1px solid #465b40;
-  color: #92a48a;
-  font-size: 8px;
-  flex-shrink: 0;
-}
-.leetcode-workspace-footer a {
-  color: #c5cda7;
-}
 .leetcode-test-cases h2 {
   color: #dedcba;
   font-size: 15px;
@@ -1073,18 +1052,12 @@
     flex-wrap: wrap;
     padding: 12px;
   }
-  .leetcode-workspace-intro .lab-eyebrow {
-    font-size: 6px;
-  }
   .leetcode-workspace-intro h1 {
     font-size: 13px;
   }
   .leetcode-problem-switch {
     width: 100%;
     margin-left: 0;
-  }
-  .leetcode-problem-switch > span {
-    display: none;
   }
   .leetcode-problem-switch select {
     width: 100%;
@@ -1146,10 +1119,6 @@
   .leetcode-run-actions .leetcode-run {
     font-size: 9px;
     padding: 9px;
-  }
-  .leetcode-workspace-footer {
-    padding: 8px 12px;
-    font-size: 7px;
   }
 }
 @media (max-width: 540px) {

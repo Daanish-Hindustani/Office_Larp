@@ -210,8 +210,9 @@ export default function LeetCodeWorkspace({
             <i />
           </span>
           <div>
-            <span className="muted">Practice desk {station.id} / </span>
-            <strong id="leetcode-workspace-title">One little problem.</strong>
+            <span className="muted" id="leetcode-workspace-title">
+              Practice desk {station.id}
+            </span>
           </div>
           <button
             ref={closeButton}
@@ -223,9 +224,6 @@ export default function LeetCodeWorkspace({
         </header>
         <div className="leetcode-workspace-intro">
           <div>
-            <span className="lab-eyebrow">
-              REAL PROBLEMS. A LITTLE SHARED PROGRESS.
-            </span>
             <h1>
               {problem
                 ? `${problem.id}. ${problem.title}`
@@ -242,7 +240,6 @@ export default function LeetCodeWorkspace({
             </span>
           )}
           <label className="leetcode-problem-switch">
-            <span>Practice shelf</span>
             <select
               aria-label="Choose a LeetCode problem"
               value={slug}
@@ -608,16 +605,6 @@ export default function LeetCodeWorkspace({
                   )}
                 </section>
               </div>
-              <footer className="leetcode-workspace-footer">
-                <span>
-                  Practice here. Official judging on{" "}
-                  <a href={problemURL(slug)} target="_blank" rel="noreferrer">
-                    LeetCode ↗
-                  </a>
-                  .
-                </span>
-                <span>Local test passes don’t change the leaderboard.</span>
-              </footer>
             </>
           )
         )}
