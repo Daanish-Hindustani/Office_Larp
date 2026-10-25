@@ -156,13 +156,7 @@ test("pairing: reviewed changes, driver ownership, pause, recap, and draft recov
       .getByRole("button", { name: "Swap roles", exact: false })
       .click();
     assert.equal(await editor.getAttribute("readonly"), null);
-    await page.getByRole("tab", { name: "Conversation" }).click();
-    await page.getByLabel("Message Milo").fill("Any hackathon advice?");
-    await page.getByRole("button", { name: "Send ↗", exact: true }).click();
-    await page.waitForFunction(
-      () => document.querySelectorAll(".chat-message").length === 3,
-    );
-    await page.getByRole("tab", { name: "Pair session" }).click();
+    assert.equal(await page.locator('.companion-chat').count(), 0);
     await page.getByLabel("Review the result").check();
     await page
       .getByLabel("Leave a thought for later")
@@ -197,8 +191,7 @@ test("pairing: reviewed changes, driver ownership, pause, recap, and draft recov
       animations: "disabled",
     });
     await page.getByRole("button", { name: "Back to workspace" }).click();
-    await page.getByRole("tab", { name: "Conversation" }).click();
-    assert.equal(await page.locator(".chat-message").count(), 3);
+    assert.equal(await page.locator(".companion-chat").count(), 0);
     await page.getByRole("button", { name: "Close project" }).click();
     await page.reload();
     await page.getByRole("button", { name: "Pair up", exact: true }).click();
@@ -352,7 +345,7 @@ test("pairing stays reachable on mobile and the lobby traps keyboard focus", asy
       .frameLocator("iframe")
       .getByRole("heading", { name: "Postcards" })
       .waitFor();
-    await page.getByRole("button", { name: "Partner & chat" }).click();
+    await page.getByRole("button", { name: "Pair session" }).click();
     await page
       .getByRole("button", { name: "A warmer welcome", exact: true })
       .click();
