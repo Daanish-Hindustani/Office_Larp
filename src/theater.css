@@ -98,14 +98,15 @@
   top: 17%;
   width: 11%;
   height: 9%;
-  background: #132c22d9;
-  border: 1px solid #b8a674;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
   color: #ecdfb6;
   font: clamp(4px, 0.6vw, 9px) var(--mono);
   z-index: 8;
 }
 .theater-exit:hover {
-  background: #3e5540;
+  background: transparent;
 }
 .theater-seat {
   position: absolute;

@@ -1,3 +1,5 @@
+import { demoFilm, playbackPosition, initialTheaterState } from "../server/theaterPlayback.mjs";
+export { demoFilm, playbackPosition };
 import { useEffect, useRef, useState } from "react";
 import { useWorld } from "./Multiplayer";
 
@@ -24,13 +26,6 @@ export const ambientFilms = [
     duration: 600,
   },
 ];
-export const demoFilm = {
-  id: "adialante-demo",
-  kind: "url",
-  title: "Adialante — Launch demo",
-  url: "/media/adialante-demo.mp4",
-  duration: 92.88,
-};
 export const reactions = ["🍿", "💛", "👏", "✨"];
 export const clockTime = (seconds = 0) => {
   const value = Math.max(0, Math.floor(seconds));
@@ -38,27 +33,10 @@ export const clockTime = (seconds = 0) => {
     .toString()
     .padStart(2, "0")}:${(value % 60).toString().padStart(2, "0")}`;
 };
-export function playbackPosition(state, now = Date.now()) {
-  const position =
-    state.position +
-    (state.playing ? Math.max(0, now - state.updatedAt) / 1000 : 0);
-  return Number.isFinite(state.source.duration)
-    ? Math.min(state.source.duration, position)
-    : position;
-}
-const initialState = () => ({
-  source: ambientFilms[0],
-  queue: ambientFilms.slice(1),
-  playing: false,
-  position: 0,
-  updatedAt: Date.now(),
-  revision: 0,
-  author: "",
-});
 export function useWatchParty(visible) {
   const world = useWorld();
   const fallback = useRef(null);
-  if (!fallback.current) fallback.current = initialState();
+  if (!fallback.current) fallback.current = initialTheaterState();
   const state = world.theater || fallback.current;
   const [now, setNow] = useState(Date.now);
   const current = useRef(state);

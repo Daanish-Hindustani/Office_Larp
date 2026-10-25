@@ -1,3 +1,4 @@
+import { initialTheaterState } from "./theaterPlayback.mjs";
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -41,7 +42,7 @@ export function multiplayerMiddleware({
   }
   const clients = new Map();
   const limits = new Map();
-  let theater = null;
+  let theater = initialTheaterState();
   let presenceDirty = false;
   const authenticate = (req) => {
     const token = /(?:^|;\s*)office_session=([a-f0-9]{64})(?:;|$)/.exec(

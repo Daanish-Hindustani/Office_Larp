@@ -92,6 +92,11 @@ test("the hallway connects both rooms, seats are interactive, and the studio sur
       .getByRole("button", { name: "Walk down the hallway to the theater" })
       .click();
     await waitForTheater(page);
+    await page.waitForFunction(() => {
+      const video = document.querySelector('.theater-map video');
+      return video?.loop && !video.paused && video.currentTime > 0;
+    });
+    assert.equal(await page.locator('.theater-exit').innerText(), '');
     assert.equal(await page.locator(".studio-view").isVisible(), false);
     assert.equal(
       await page.locator(".room-title").innerText(),
@@ -211,7 +216,12 @@ test("the hallway connects both rooms, seats are interactive, and the studio sur
       .getByRole("dialog", { name: "Theater screening" })
       .getByRole("button", { name: "Back to room", exact: false })
       .click();
-    await page.keyboard.press("e");
+    const standPrompt = page.locator('.theater-player .interaction-prompt').filter({ hasText: "Stand up" });
+    await standPrompt.waitFor();
+    await standPrompt.click();
+    await page.waitForFunction(() =>
+      document.querySelector('[data-testid="theater-player"]').dataset.state === "standing",
+    );
     await page
       .getByRole("button", {
         name: "Walk through the hallway back to the studio",

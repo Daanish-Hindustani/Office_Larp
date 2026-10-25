@@ -173,8 +173,6 @@ const TheaterRoom = forwardRef(function TheaterRoom(
   }
   callbacks.current.watchDemo = watchDemo;
   function exit() {
-    if (currentParty.current.count === 1)
-      currentParty.current.publish({ playing: false });
     callbacks.current.onExit();
   }
   function interact() {
@@ -495,7 +493,8 @@ const TheaterRoom = forwardRef(function TheaterRoom(
             src={party.state.source.url}
             muted={muted}
             playsInline
-            autoPlay={focusScreen && party.state.playing}
+            autoPlay={active && party.state.playing}
+            loop={party.state.source.url === demoFilm.url}
             poster={
               party.state.source.url === demoFilm.url
                 ? "/media/adialante-poster.jpg"
@@ -515,7 +514,7 @@ const TheaterRoom = forwardRef(function TheaterRoom(
               );
             }}
             onEnded={(event) =>
-              party.publish({
+              party.state.source.url !== demoFilm.url && party.publish({
                 playing: false,
                 position: event.currentTarget.currentTime,
               })
@@ -625,7 +624,6 @@ const TheaterRoom = forwardRef(function TheaterRoom(
                   walkTo({ x: 88, y: 16 });
                 }}
               >
-                <span>↑ STUDIO</span>
               </button>
               {theaterSeats.map((seat) => (
                 <button
