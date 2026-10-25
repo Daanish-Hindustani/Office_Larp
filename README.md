@@ -2,11 +2,15 @@
 
 A multiplayer pixel coworking office built with React, Vite, and Node. People sign in, walk around the same office, work at browser-based computers, and watch screenings together. Four NPC coworkers—Milo, Leo, Jun, and Ada—provide projects, conversations, and local pairing practice.
 
+See [technical architecture](docs/architecture.md) for the component map, data flows, APIs, storage, and operational limits.
+
 ## Run locally
 
-Requires **Node 22.13 or newer**. Node 22 prints an experimental warning for its built-in SQLite module.
+Requires **Git, npm, and Node 22.13 or newer**. Docker with Compose is optional for container deployment. Node 22 prints an experimental warning for its built-in SQLite module.
 
 ```sh
+git clone https://github.com/Daanish-Hindustani/Office_Larp.git
+cd Office_Larp
 npm ci
 npm run dev
 ```
@@ -38,6 +42,18 @@ All project files stay in the browser tab's session storage, including added fil
 Project files are not account-synced. Avoid leaving private drafts on a shared device. Messages are persisted as text and never executed automatically.
 
 The algorithm room uses a read-only server adapter for LeetCode statements and public profiles. Practice cases are room-authored, not LeetCode's hidden tests. Official submission opens LeetCode, where the user logs in and submits themselves. The algorithm room shows only the playable room: choose problems inside a computer workspace and click its chalkboard for the LeetCode leaderboard. Tracked LeetCode usernames remain browser-local; studio online/pairing time is account-based and saved on the server.
+
+## Share a public HTTPS link from your computer
+
+Install [ngrok](https://ngrok.com/download) and connect it to your ngrok account using `ngrok config add-authtoken YOUR_TOKEN`. Keep your token private. Then run:
+
+```sh
+npm run share
+```
+
+This builds the app, starts a production server on loopback port 4174, opens an ngrok HTTPS tunnel, and prints **Share this link**. Everyone, including the host, should use that link to join the same office. Keep this terminal open and the computer awake; Ctrl+C stops both the tunnel and server. Ngrok may display a Visit Site confirmation before the app.
+
+Sharing uses separate persistent data in `.data/shared-office.sqlite` and `.data/shared-office-activity.json`, so your Vite development server can remain running. Local development accounts and players do not carry over to the shared office. Set `SHARE_PORT` to change the local port; `OFFICE_SHARE_DB` and `OFFICE_SHARE_ACTIVITY_FILE` override shared storage paths. Run only one sharing server against those files. The URL is configured automatically as the allowed origin, with secure session cookies. No Vite source server is exposed.
 
 ## Deploy with Docker and NGINX
 
@@ -83,11 +99,11 @@ Username-only entry does not verify identity: anyone who knows a username can us
 ## Controls and NPCs
 
 - WASD/arrows: walk. Click the floor to pathfind. Touch movement controls are available.
-- Approach a chair, computer, or NPC and press **E** to interact. Sitting at a studio or algorithm-room computer automatically opens its workspace. Close the workspace to stand up or move. **Escape** closes a workspace or conversation.
+- Approach a chair, computer, or NPC and press **E** to interact. Sitting at a studio or algorithm-room computer automatically opens its workspace. Close the workspace to return to the room; press E to stand up. Nearby coworker desks offer **Talk** and **View project**. Computer views have no embedded chat or pairing invitation; use character dialogue for conversation and **Pair up** for NPC pairing practice. **Escape** closes a workspace or conversation.
 - The studio's lower doorways lead to the theater and code club. Direct links also work: `?room=theater` and `?room=leetcode`.
 - NPCs walk, take breaks, and return to their desks. Their conversations and pairing suggestions are deterministic local practice, with no AI service.
 - The account leaderboard records server-observed foreground online and NPC pairing time. Overlapping tabs do not double-count. Hidden tabs, disconnects, and restarts earn no unobserved time. Names can be edited without changing account ownership or history.
-- Theater seats animate through approach, lowering, sitting, and standing. Sitting opens a full-screen screening of the supplied **Adialante launch demo**, with shared play/pause/seek and personal sound controls. Playback starts muted; returning guests join the current demo position instead of restarting it. Back to room or Escape returns to the seated room view. A 1080p web copy and poster are bundled in `public/media/`; the original 4K file is unchanged.
+- Theater seats animate through approach, lowering, sitting, and standing. The supplied **Adialante launch demo** starts playing on entry and loops continuously on a shared timeline, including while the room is empty. Sitting opens its full-screen screening, with shared play/pause/seek and personal sound controls. Playback starts muted; returning guests join the current demo position instead of restarting it. Back to room or Escape returns to the seated room view. A 1080p web copy and poster are bundled in `public/media/`; the original 4K file is unchanged.
 - Sound and autoplay permissions are personal settings.
 
 ## Verification
@@ -98,6 +114,21 @@ npm run build
 ```
 
 Node API tests cover persistence, session revocation, validation, cross-origin writes, forged identities, private-message isolation, screening conflicts, activity deduplication, and upstream adapters. Playwright tests launch temporary Vite servers on ports 5174–5177 and 5182 using installed Chrome. Set `PLAYWRIGHT_CHANNEL` for a different installed Chromium channel. Browser tests cover independent users, avatar movement, removal of the studio chat panel, reloads, reconnects, theater playback sync, mobile layout, existing NPC pairing, and browser execution isolation/timeouts. LeetCode browser tests use API fixtures and do not require the external site. New multiplayer screenshots are written to the system temporary directory.
+
+## Troubleshooting
+
+| Symptom | What to check |
+| --- | --- |
+| A friend cannot open `localhost` | Share the HTTPS tunnel/domain URL. `localhost` refers to their own device. |
+| Sign-in fails with an origin error | Set `OFFICE_ORIGIN` to the exact URL visitors use, then restart the backend. |
+| Remote HTTP loads but browser features fail | Use HTTPS outside localhost; a private LAN address does not provide a secure browser context. |
+| Sign-in does not persist on local production HTTP | For loopback testing with `NODE_ENV=production`, explicitly set `OFFICE_SECURE_COOKIES=0`. Use `1` with public HTTPS. |
+| Players do not update through NGINX | Check `/api/world/events`, buffering settings, proxy timeout, and connectivity. |
+| SQLite reports `database is locked` | Stop duplicate backend processes using the same files. `npm run share` already uses separate storage. |
+| Ngrok cannot start | Run `ngrok config check`, configure your own account token, and check the reported network/account error. Never commit the token. |
+| Port 4174 is in use | Stop the existing shared instance or run `SHARE_PORT=4175 npm run share`. |
+| Shared page shows old code | Stop sharing with Ctrl+C, then run `npm run share` to rebuild and restart. Vite hot reload only updates development. |
+| Browser tests cannot find Chrome | Install Chrome or select another installed Chromium channel through `PLAYWRIGHT_CHANNEL`. |
 
 ## Structure
 
