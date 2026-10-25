@@ -8,7 +8,6 @@ import {
   validProjectFilename,
 } from "./projectFiles";
 import "./projectFiles.css";
-import ChatWindow from "./ChatWindow";
 import PairPanel, { PairBar, PairRecap } from "./PairPanel";
 import { proposeChange, usePairSession } from "./pairing";
 
@@ -145,10 +144,10 @@ function Demo({ kind }) {
 export default function ProjectWindow({
   person,
   onClose,
-  showChat = false,
   initialPairing = false,
   onLeaderboard,
 }) {
+  const showChat = initialPairing;
   const [files, setFiles] = useState(() =>
       readProjectFiles(person.id, projectHTML(person)),
     ),
@@ -172,8 +171,7 @@ export default function ProjectWindow({
   const pair = usePairSession(person);
   const pairing = pair.session?.phase === "active";
   const ended = pair.session?.phase === "ended";
-  const [sideTab, setSideTab] = useState(initialPairing ? "pair" : "chat"),
-    [mobilePanel, setMobilePanel] = useState(
+  const [mobilePanel, setMobilePanel] = useState(
       initialPairing ? "partner" : "code",
     ),
     [suggestion, setSuggestion] = useState(null),
@@ -348,7 +346,6 @@ export default function ProjectWindow({
             onReturn={() => {
               pair.update((s) => ({ ...s, phase: "idle" }));
               setNotice("");
-              setSideTab("pair");
               setMobilePanel("partner");
             }}
           />
@@ -368,17 +365,7 @@ export default function ProjectWindow({
             <span className="live-label">
               <i /> MOCK WORKSPACE
             </span>
-            {showChat && !pairing && (
-              <button
-                className="pair-workspace-invite"
-                onClick={() => {
-                  setSideTab("pair");
-                  setMobilePanel("partner");
-                }}
-              >
-                ↔ Pair with {person.name}
-              </button>
-            )}
+
           </div>
           {pairing && (
             <PairBar
@@ -399,7 +386,7 @@ export default function ProjectWindow({
                 aria-pressed={mobilePanel === "partner"}
                 onClick={() => setMobilePanel("partner")}
               >
-                ↔ Partner & chat
+                ↔ Pair session
               </button>
             </div>
           )}
@@ -538,7 +525,7 @@ export default function ProjectWindow({
                     </p>
                     <p>
                       All project files are kept in this browser tab when
-                      storage is available. Pair with a coworker to set a goal,
+                      storage is available. Use the studio’s Pair up option to set a goal,
                       review ideas, and take turns driving.
                     </p>
                   </div>
@@ -591,71 +578,7 @@ export default function ProjectWindow({
                 className="workspace-companion"
                 aria-label="Coworker tools"
               >
-                <div
-                  className="companion-tabs"
-                  role="tablist"
-                  aria-label="Coworker tools"
-                  onKeyDown={(event) => {
-                    if (
-                      !["ArrowLeft", "ArrowRight", "Home", "End"].includes(
-                        event.key,
-                      )
-                    )
-                      return;
-                    event.preventDefault();
-                    const next =
-                      event.key === "Home"
-                        ? "chat"
-                        : event.key === "End"
-                          ? "pair"
-                          : sideTab === "chat"
-                            ? "pair"
-                            : "chat";
-                    setSideTab(next);
-                    document.getElementById(`${next}-tab`)?.focus();
-                  }}
-                >
-                  <button
-                    id="chat-tab"
-                    role="tab"
-                    tabIndex={sideTab === "chat" ? 0 : -1}
-                    aria-selected={sideTab === "chat"}
-                    aria-controls="chat-panel"
-                    onClick={() => setSideTab("chat")}
-                  >
-                    ☏ Conversation
-                  </button>
-                  <button
-                    id="pair-tab"
-                    role="tab"
-                    tabIndex={sideTab === "pair" ? 0 : -1}
-                    aria-selected={sideTab === "pair"}
-                    aria-controls="pair-panel"
-                    onClick={() => setSideTab("pair")}
-                  >
-                    ↔ Pair session{pairing && <i className="green-dot" />}
-                  </button>
-                </div>
-                <div
-                  id="chat-panel"
-                  role="tabpanel"
-                  aria-labelledby="chat-tab"
-                  hidden={sideTab !== "chat"}
-                  className="companion-panel companion-chat"
-                >
-                  <ChatWindow
-                    person={person}
-                    onReply={setResponse}
-                    autoFocus={!initialPairing}
-                  />
-                </div>
-                <div
-                  id="pair-panel"
-                  role="tabpanel"
-                  aria-labelledby="pair-tab"
-                  hidden={sideTab !== "pair"}
-                  className="companion-panel"
-                >
+                <div className="companion-panel">
                   <PairPanel
                     person={person}
                     pair={pair}

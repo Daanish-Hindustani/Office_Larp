@@ -265,6 +265,16 @@ export default function App() {
               </span>
               {nearby ? (
                 <div className="nearby-actions">
+                  {["computer", "chair", "person", "stand"].includes(nearby.kind) && (
+                    <>
+                      {people.some(person => person.id === (nearby.id || nearby.desk?.id)) && (
+                        <button onClick={() => office.current?.talkAtDesk()}>Talk</button>
+                      )}
+                      {nearby.kind !== "stand" && (
+                        <button onClick={() => office.current?.viewNearbyProject()}>View project ↗</button>
+                      )}
+                    </>
+                  )}
                   {nearby.kind === "stand" && (
                     <button
                       onClick={() => office.current?.visitSeatedProject()}
@@ -343,7 +353,6 @@ export default function App() {
         <ProjectWindow
           key={active.id}
           person={active}
-          showChat={people.some((person) => person.id === active.id)}
           initialPairing={pairOnOpen}
           onLeaderboard={() => {
             setActive(null);

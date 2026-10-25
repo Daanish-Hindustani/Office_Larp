@@ -240,6 +240,21 @@ const Office = forwardRef(function Office(
   }
   useImperativeHandle(ref, () => ({
     interact: () => interact(),
+    talkAtDesk: () => {
+      if (callbacks.current.paused) return;
+      const choice = nearest.current;
+      const person = people.find(person => person.id === (choice?.id || actor.current.seatId));
+      if (!person) return;
+      stop();
+      callbacks.current.onChat(person);
+    },
+    viewNearbyProject: () => {
+      if (callbacks.current.paused) return;
+      const choice = nearest.current;
+      const desk = desks.find(desk => desk.id === (choice?.id || actor.current.seatId));
+      if (!desk) return;
+      void interact({ kind: "computer", id: desk.id, desk });
+    },
     returnFromTheater: () => {
       stop();
       actor.current.x = 50;
